@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.db
+checkpoints.db
+.DS_Store
+.pytest_cache/
+.mypy_cache/
+notes/
+# baselines 由评测生成；大报告全文勿提交时可取消下一行注释
+# evals/baselines/*.json

@@ -1,0 +1,50 @@
+# 黄金研究命题（前后对比评测集）
+# 人工期望与评分备注可放同目录 expectations/<id>.md（可选）
+
+version: "1.0"
+domain: 新能源汽车
+
+queries:
+  - id: G1
+    title: 比亚迪海外扩张
+    query: 分析比亚迪 2024 年海外扩张战略及风险评估
+    phase: 1
+    focus:
+      - 海外市场布局与节奏
+      - 本地化/产能/渠道
+      - 政策与地缘风险
+      - 财务与执行风险
+    hard_gates:
+      min_chars: 5000
+      min_cited_facts: 5
+      max_wall_seconds: 300
+
+  - id: G2
+    title: 宁德时代供应链集中度
+    query: 梳理宁德时代电池供应链的集中度与潜在风险
+    phase: 1
+    focus:
+      - 上游材料与关键供应商
+      - 集中度度量（份额/依赖）
+      - 断供与价格传导风险
+      - 客户结构（整车）
+    hard_gates:
+      min_chars: 5000
+      min_cited_facts: 5
+      max_wall_seconds: 300
+
+  - id: G3
+    title: 特斯拉 vs 比亚迪对比
+    query: 对比特斯拉 vs 比亚迪：成本结构、技术路线、市场份额变化
+    phase: 1
+    focus:
+      - 成本结构对比
+      - 技术路线（电池/智驾/平台）
+      - 份额时间序列
+      - 结论需有数据支撑
+    hard_gates:
+      min_chars: 5000
+      min_cited_facts: 5
+      max_wall_seconds: 300
+
+# Phase 2+ 可追加 G4…；保持 id 稳定以便 baseline 对比

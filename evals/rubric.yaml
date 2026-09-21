@@ -1,0 +1,81 @@
+# Rubric：研究报告五维评分（人工抽检与 Verifier 代理共用）
+# 总分 = Σ(维度分 × weight)；维度分均为 0–100
+
+version: "1.0"
+total_scale: 100
+
+dimensions:
+  - id: D1_coverage
+    name: 覆盖度
+    weight: 0.20
+    description: >
+      研究框架是否覆盖命题要求的关键维度
+      （如战略路径、市场规模、竞争格局、风险、政策等，按命题裁剪）。
+    levels:
+      0: 严重缺维，像百科摘抄
+      50: 主维度有，次要维度缺失
+      100: 维度完整且与命题对齐
+
+  - id: D2_citation
+    name: 引用准确性
+    weight: 0.25
+    description: >
+      事实点有可回溯来源；引用与正文匹配；无空口事实与明显幻觉。
+    levels:
+      0: 几乎无引用或大量无法核验
+      50: 有引用但部分对不上 / 过时
+      100: 关键事实均可溯源且一致
+
+  - id: D3_data_support
+    name: 数据支撑
+    weight: 0.20
+    description: >
+      量化结论有数据；财务/销量等指标口径清楚；图表与正文一致（Phase 2+ 加重）。
+    levels:
+      0: 几乎无有效数据
+      50: 有数但缺口径或图表脱节
+      100: 数据充分、口径清楚、图表一致
+
+  - id: D4_logic
+    name: 逻辑一致性
+    weight: 0.20
+    description: >
+      前后无矛盾；推理不跳跃；结论可由证据推出。
+    levels:
+      0: 明显自相矛盾或结论悬空
+      50: 偶有跳跃但主线可跟
+      100: 论证链条清晰自洽
+
+  - id: D5_depth
+    name: 深度与可行动性
+    weight: 0.15
+    description: >
+      非信息堆砌；有风险判断、启示或可验证主张。
+    levels:
+      0: 空洞综述
+      50: 有分析但偏浅
+      100: 有深度洞察与可行动结论
+
+# 硬门槛（与 rubric 并行；不满足则评测标记 hard_fail）
+hard_gates:
+  phase1:
+    min_chars: 5000
+    min_cited_facts: 5
+    max_wall_seconds: 300
+    min_retrieval_rounds: 2
+  phase2:
+    min_chart_types: 3
+    min_data_insight_section_ratio: 0.30
+  phase3:
+    critical_facts_min_sources: 2
+    max_logic_contradiction_rate: 0.05
+    min_auto_fix_success_rate: 0.70
+    max_avg_iterations: 3
+  phase4:
+    min_subquestions: 5
+    max_wall_seconds: 360
+    min_rubric_lift_vs_baseline: 0.20
+  phase5:
+    min_relation_insight_ratio: 0.20
+    min_graph_entities: 1000
+    min_graph_relations: 5000
