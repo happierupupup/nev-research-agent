@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -76,8 +77,15 @@ def iter_doc_files(docs_dir: Path | None = None) -> list[Path]:
     root = docs_dir or KB_DOCS
     if not root.exists():
         return []
+    skip_names = {"readme.md", "sources.md"}
     files = sorted(root.rglob("*"))
-    return [p for p in files if p.is_file() and p.suffix.lower() in {".md", ".txt"}]
+    return [
+        p
+        for p in files
+        if p.is_file()
+        and p.suffix.lower() in {".md", ".txt"}
+        and p.name.lower() not in skip_names
+    ]
 
 
 def build_chunks(docs_dir: Path | None = None) -> list[Chunk]:
@@ -101,7 +109,7 @@ def ingest(
     *,
     docs_dir: Path | None = None,
     index_dir: Path | None = None,
-    batch_size: int = 32,
+    batch_size: int = 10,
 ) -> dict[str, Any]:
     """Chunk docs, embed, write index under data/kb_index/."""
     from agent.llm import get_embeddings
@@ -115,10 +123,22 @@ def ingest(
         raise FileNotFoundError(f"No .md/.txt docs under {docs}")
 
     emb = get_embeddings()
+    base = (os.getenv("OPENAI_BASE_URL") or "").lower()
+    # DashScope compatible embeddings: batch must be ≤20 (some models ≤10).
+    cap = 10 if "dashscope" in base else 32
+    batch_size = max(1, min(int(batch_size), cap))
     vectors: list[list[float]] = []
     texts = [c.text for c in chunks]
+    n_batches = (len(texts) + batch_size - 1) // batch_size
+    print(
+        f"Embedding {len(texts)} chunks in {n_batches} batches "
+        f"(batch_size={batch_size})",
+        flush=True,
+    )
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
+        n = i // batch_size + 1
+        print(f"  [{n}/{n_batches}] {len(batch)} chunks", flush=True)
         vectors.extend(emb.embed_documents(batch))
 
     with (out_dir / CHUNKS_NAME).open("w", encoding="utf-8") as f:

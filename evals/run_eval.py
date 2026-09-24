@@ -99,6 +99,7 @@ def run_suite(
 
     results: list[dict[str, Any]] = []
     for item in items:
+        print(f"\nRunning {item['id']}: {item['query'][:80]}", flush=True)
         run = _run_one(item["query"], dry_run=dry_run)
         report = run["report"]
         chars = count_chars(report)
@@ -109,8 +110,17 @@ def run_suite(
             cited_facts=cited,
             wall_seconds=run["wall_seconds"],
             gates=gates,
+            kb_calls=run.get("kb_calls"),
+            web_calls=run.get("web_calls"),
         )
         dimension_scores = {d: None for d in weights}
+        status = "PASS" if gate_result["passed"] else "FAIL"
+        print(
+            f"  [{status}] {item['id']}: chars={chars} cites={cited} "
+            f"wall={run['wall_seconds']}s kb={run.get('kb_calls')} web={run.get('web_calls')} "
+            f"failures={gate_result['failures']}",
+            flush=True,
+        )
         results.append(
             {
                 "id": item["id"],
@@ -121,10 +131,12 @@ def run_suite(
                 "retrieval_rounds": run.get("retrieval_rounds"),
                 "kb_calls": run.get("kb_calls"),
                 "web_calls": run.get("web_calls"),
+                "tool_trace": run.get("tool_trace"),
                 "hard_gates": gate_result,
                 "dimension_scores": dimension_scores,
                 "rubric_total": None,
                 "report_preview": report[:400],
+                "report": report,
             }
         )
 

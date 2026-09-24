@@ -56,8 +56,20 @@ def web_search(query: str, max_results: int = 5) -> str:
 
     Prefer this for timely facts not in the local KB (news, official stats,
     company announcements). Returns JSON list with title, url, snippet,
-    retrieved_at.
+    retrieved_at. Do not call again after a budget-exhausted error.
     """
+    from agent.tools.budget import allow_web_search
+
+    ok, used, cap = allow_web_search()
+    if not ok:
+        return json.dumps(
+            {
+                "error": f"web_search budget exhausted (max={cap})",
+                "results": [],
+            },
+            ensure_ascii=False,
+        )
+
     n = max(1, min(int(max_results), 8))
     try:
         if (os.getenv("TAVILY_API_KEY") or "").strip():
@@ -66,7 +78,7 @@ def web_search(query: str, max_results: int = 5) -> str:
             hits = _search_duckduckgo(query, n)
     except Exception as exc:  # noqa: BLE001
         return json.dumps(
-            {"error": f"{type(exc).__name__}: {exc}", "results": []},
+            {"error": f"{type(exc).__name__}: {exc}", "results": [], "web_used": used},
             ensure_ascii=False,
         )
-    return json.dumps({"results": hits}, ensure_ascii=False)
+    return json.dumps({"results": hits, "web_used": used, "web_max": cap}, ensure_ascii=False)

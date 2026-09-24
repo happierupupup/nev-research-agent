@@ -7,6 +7,9 @@ from evals.metrics import (
     compare_runs,
     count_chars,
     count_cited_facts,
+    hit_at_k,
+    precision_at_k,
+    recall_at_k,
     weighted_rubric_score,
 )
 
@@ -29,6 +32,34 @@ def test_hard_gates_pass():
         gates={"min_chars": 5000, "min_cited_facts": 5, "max_wall_seconds": 300},
     )
     assert r["passed"] is True
+
+
+def test_hard_gates_fail_kb_calls():
+    r = check_hard_gates(
+        chars=200,
+        cited_facts=2,
+        wall_seconds=10,
+        kb_calls=0,
+        web_calls=0,
+        gates={"min_chars": 80, "min_cited_facts": 1, "min_kb_calls": 1, "max_web_calls": 2},
+    )
+    assert r["passed"] is False
+    assert any("kb_calls" in f for f in r["failures"])
+
+
+def test_compare_runs_includes_tools():
+    baseline = {
+        "results": [
+            {"id": "Q1", "rubric_total": None, "wall_seconds": 9, "kb_calls": 0, "web_calls": 0},
+        ]
+    }
+    current = {
+        "results": [
+            {"id": "Q1", "rubric_total": None, "wall_seconds": 12, "kb_calls": 1, "web_calls": 0},
+        ]
+    }
+    diff = compare_runs(baseline, current)
+    assert diff["per_query_tools"][0]["kb_calls"]["current"] == 1
 
 
 def test_hard_gates_fail_chars():
@@ -63,3 +94,13 @@ def test_compare_runs_lift():
     }
     diff = compare_runs(baseline, current)
     assert diff["mean_rubric_lift_ratio"] == 0.2
+
+
+def test_retrieval_metrics():
+    retrieved = ["a.md", "b.md", "c.md", "d.md"]
+    relevant = {"a.md", "x.md"}
+    assert precision_at_k(retrieved, relevant, 4) == 0.25
+    assert recall_at_k(retrieved, relevant, 4) == 0.5
+    assert hit_at_k(retrieved, relevant, 4) == 1.0
+    assert hit_at_k(["z.md"], relevant, 4) == 0.0
+    assert precision_at_k([], relevant, 4) == 0.0

@@ -1,0 +1,65 @@
+# 检索金标：文件级相关（chunk 的 source 落在 relevant 即算命中）
+# 用于 P@k / R@k / Hit@k，不跑 LLM。扩充语料后必须同步本文件。
+
+version: "1.0"
+k: 4
+domain: 新能源汽车
+
+queries:
+  - id: Q1
+    query: 比亚迪刀片电池的核心卖点是什么？
+    relevant:
+      - byd_blade_battery.md
+
+  - id: Q2
+    query: 2024 年中国新能源乘用车渗透率大概多少？
+    relevant:
+      - nev_penetration_2024.md
+      - iea_global_ev_2024_2025.md
+
+  - id: G1
+    query: 分析比亚迪 2024 年海外扩张战略及风险评估
+    relevant:
+      - byd_overseas_2024.md
+      - ev_trade_barriers.md
+
+  - id: G2
+    query: 梳理宁德时代电池供应链的集中度与潜在风险
+    relevant:
+      - catl_supply_chain.md
+      - upstream_lithium_nickel_cobalt.md
+      - battery_second_tier.md
+
+  - id: G3
+    query: 对比特斯拉 vs 比亚迪：成本结构、技术路线、市场份额变化
+    relevant:
+      - tesla_vs_byd_2024.md
+      - battery_lfp_nmc.md
+      - byd_blade_battery.md
+
+  - id: R1
+    query: 宁德时代 2024 年全球动力电池市占率大概多少？
+    relevant:
+      - catl_supply_chain.md
+
+  - id: R2
+    query: 欧盟对中国电动汽车加征关税对出海有何影响？
+    relevant:
+      - ev_trade_barriers.md
+      - byd_overseas_2024.md
+
+  - id: R3
+    query: 磷酸铁锂和三元锂电池有什么区别？
+    relevant:
+      - battery_lfp_nmc.md
+
+  - id: R4
+    query: 2024 年汽车以旧换新买新能源补贴多少钱？
+    relevant:
+      - china_nev_policy_2024.md
+
+  - id: R5
+    query: 蔚来换电模式和理想增程有什么不同？
+    relevant:
+      - china_new_forces.md
+      - charging_and_swap.md

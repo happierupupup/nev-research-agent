@@ -18,8 +18,14 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Ingest local KB docs")
     p.add_argument("--docs", type=Path, default=None, help="docs dir (default data/kb)")
     p.add_argument("--index", type=Path, default=None, help="index dir (default data/kb_index)")
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=10,
+        help="embedding batch size (DashScope max 20; default 10)",
+    )
     args = p.parse_args()
-    meta = ingest(docs_dir=args.docs, index_dir=args.index)
+    meta = ingest(docs_dir=args.docs, index_dir=args.index, batch_size=args.batch_size)
     print(f"Ingested {meta['n_docs']} docs → {meta['n_chunks']} chunks")
     print(meta)
 

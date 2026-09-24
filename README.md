@@ -11,6 +11,7 @@ cd nev-research-agent
 pip install -r requirements.txt
 cp .env.example .env          # API Key；可选 TAVILY_API_KEY
 python scripts/ingest_kb.py
+python evals/run_retrieval.py --tag kb_expand   # 检索 P@k / R@k
 python main.py                # 思考过程实时输出 → 带引用回答 → 信息来源
 python evals/run_eval.py --tag s1_baseline --ids Q1,Q2
 ```

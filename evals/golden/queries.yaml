@@ -18,6 +18,8 @@ queries:
       min_chars: 100
       min_cited_facts: 1
       max_wall_seconds: 180
+      min_kb_calls: 1
+      max_web_calls: 2
 
   - id: Q2
     title: 渗透率（短问答）
@@ -31,6 +33,8 @@ queries:
       min_chars: 80
       min_cited_facts: 1
       max_wall_seconds: 180
+      min_kb_calls: 1
+      max_web_calls: 2
 
   - id: G1
     title: 比亚迪海外扩张
@@ -46,6 +50,9 @@ queries:
       min_chars: 1500
       min_cited_facts: 3
       max_wall_seconds: 600
+      min_kb_calls: 1
+      min_web_calls: 1
+      max_web_calls: 4
 
   - id: G2
     title: 宁德时代供应链集中度
@@ -61,6 +68,9 @@ queries:
       min_chars: 1500
       min_cited_facts: 3
       max_wall_seconds: 600
+      min_kb_calls: 1
+      min_web_calls: 1
+      max_web_calls: 4
 
   - id: G3
     title: 特斯拉 vs 比亚迪对比
@@ -76,6 +86,9 @@ queries:
       min_chars: 1500
       min_cited_facts: 3
       max_wall_seconds: 600
+      min_kb_calls: 1
+      min_web_calls: 1
+      max_web_calls: 4
 
 # Phase 2+ 可追加；保持 id 稳定以便 baseline 对比
 # S1 建议先跑: --ids Q1,Q2,G1

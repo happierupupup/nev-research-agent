@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kb import _split_markdown, build_chunks, format_context
+from kb import _split_markdown, build_chunks, format_context, iter_doc_files
 from kb import Hit, Chunk
 
 
@@ -17,11 +17,32 @@ def test_split_markdown_headings():
 
 def test_build_chunks_from_sample_kb():
     root = Path(__file__).resolve().parents[1]
-    chunks = build_chunks(root / "data" / "kb")
-    assert len(chunks) >= 3
+    kb_dir = root / "data" / "kb"
+    chunks = build_chunks(kb_dir)
+    docs = iter_doc_files(kb_dir)
+    assert len(docs) >= 10
+    assert len(chunks) >= 20
+    names = {p.name.lower() for p in docs}
+    assert "readme.md" not in names
     blob = "\n".join(c.text for c in chunks)
     assert "刀片电池" in blob
     assert "渗透率" in blob
+    assert "37.9" in blob or "海外" in blob
+
+
+def test_qrels_sources_exist():
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    kb_dir = root / "data" / "kb"
+    docs = {p.name for p in kb_dir.glob("*.md") if p.name.lower() != "readme.md"}
+    qrels = yaml.safe_load((root / "evals" / "retrieval" / "qrels.yaml").read_text(encoding="utf-8"))
+    missing: list[str] = []
+    for item in qrels["queries"]:
+        for src in item["relevant"]:
+            if src not in docs:
+                missing.append(src)
+    assert not missing, f"qrels 指向不存在的语料: {missing}"
 
 
 def test_format_context():
