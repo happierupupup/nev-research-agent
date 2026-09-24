@@ -16,6 +16,11 @@ def test_count_cited_facts():
     assert count_cited_facts(text) >= 3
 
 
+def test_count_cited_facts_source_paren():
+    text = "刀片电池针刺不起火 (来源: KB/byd_blade_battery.md)。渗透率约 40% (来源: https://example.com/a)"
+    assert count_cited_facts(text) >= 2
+
+
 def test_hard_gates_pass():
     r = check_hard_gates(
         chars=6000,

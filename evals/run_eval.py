@@ -3,12 +3,10 @@
 统一评测入口：跑黄金集、落盘 baseline、前后对比。
 
 用法:
-  python evals/run_eval.py --suite golden --tag baseline_phase1
-  python evals/run_eval.py --suite golden --tag after_p1 --compare baseline_phase1
+  python evals/run_eval.py --suite golden --tag s1_baseline --ids Q1,Q2
+  python evals/run_eval.py --suite golden --tag s1_baseline --ids Q1,Q2,G1
+  python evals/run_eval.py --suite golden --tag after_xxx --compare s1_baseline
   python evals/run_eval.py --suite golden --tag dry --dry-run
-
-Agent 未就绪时默认 --dry-run：用占位报告写快照，验证指标管道。
-接上 main/agent 后去掉 --dry-run，由 runner 调用真实流水线。
 """
 
 from __future__ import annotations
@@ -75,16 +73,32 @@ def _run_one(query: str, *, dry_run: bool) -> dict[str, Any]:
         "wall_seconds": round(wall, 2),
         "retrieval_rounds": meta.get("retrieval_rounds"),
         "iteration_count": meta.get("iteration_count"),
+        "kb_calls": meta.get("kb_calls"),
+        "web_calls": meta.get("web_calls"),
+        "tool_trace": meta.get("tool_trace"),
     }
 
 
-def run_suite(*, tag: str, dry_run: bool, compare_tag: str | None) -> Path:
+def run_suite(
+    *,
+    tag: str,
+    dry_run: bool,
+    compare_tag: str | None,
+    ids: set[str] | None = None,
+) -> Path:
     suite = _load_yaml(GOLDEN)
     rubric = _load_yaml(RUBRIC)
     weights = {d["id"]: float(d["weight"]) for d in rubric["dimensions"]}
 
+    items = suite["queries"]
+    if ids:
+        items = [q for q in items if q["id"] in ids]
+        missing = ids - {q["id"] for q in items}
+        if missing:
+            raise SystemExit(f"unknown query ids: {sorted(missing)}")
+
     results: list[dict[str, Any]] = []
-    for item in suite["queries"]:
+    for item in items:
         run = _run_one(item["query"], dry_run=dry_run)
         report = run["report"]
         chars = count_chars(report)
@@ -96,7 +110,6 @@ def run_suite(*, tag: str, dry_run: bool, compare_tag: str | None) -> Path:
             wall_seconds=run["wall_seconds"],
             gates=gates,
         )
-        # 人工 / Verifier 分数：dry-run 不填；正式跑后可写入 dimension_scores
         dimension_scores = {d: None for d in weights}
         results.append(
             {
@@ -106,9 +119,11 @@ def run_suite(*, tag: str, dry_run: bool, compare_tag: str | None) -> Path:
                 "chars": chars,
                 "cited_facts": cited,
                 "retrieval_rounds": run.get("retrieval_rounds"),
+                "kb_calls": run.get("kb_calls"),
+                "web_calls": run.get("web_calls"),
                 "hard_gates": gate_result,
                 "dimension_scores": dimension_scores,
-                "rubric_total": None,  # 填完 dimension_scores 后用 metrics.weighted_rubric_score
+                "rubric_total": None,
                 "report_preview": report[:400],
             }
         )
@@ -131,7 +146,8 @@ def run_suite(*, tag: str, dry_run: bool, compare_tag: str | None) -> Path:
         status = "PASS" if r["hard_gates"]["passed"] else "FAIL"
         print(
             f"  [{status}] {r['id']}: chars={r['chars']} cites={r['cited_facts']} "
-            f"wall={r['wall_seconds']}s failures={r['hard_gates']['failures']}"
+            f"wall={r['wall_seconds']}s kb={r.get('kb_calls')} web={r.get('web_calls')} "
+            f"failures={r['hard_gates']['failures']}"
         )
 
     if compare_tag:
@@ -156,16 +172,22 @@ def main() -> None:
         action="store_true",
         help="use stub report (no LLM); for wiring metrics before Agent exists",
     )
+    p.add_argument(
+        "--ids",
+        default=None,
+        help="comma-separated query ids, e.g. Q1,Q2,G1 (default: all)",
+    )
     args = p.parse_args()
-    # 无 Agent 时默认建议 dry-run；若未指定且 runtime 不存在则强制 dry-run
     dry = args.dry_run
     if not dry:
         try:
-            import agent.runtime  # noqa: F401
+            from agent.runtime import run_research  # noqa: F401
+            # implemented if callable and not raising NotImplemented by import alone
         except ImportError:
             print("agent.runtime missing → falling back to --dry-run")
             dry = True
-    run_suite(tag=args.tag, dry_run=dry, compare_tag=args.compare)
+    id_set = {x.strip() for x in args.ids.split(",") if x.strip()} if args.ids else None
+    run_suite(tag=args.tag, dry_run=dry, compare_tag=args.compare, ids=id_set)
 
 
 if __name__ == "__main__":
