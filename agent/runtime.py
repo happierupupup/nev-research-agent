@@ -23,7 +23,8 @@ from agent.graph import (
     payload_messages,
     progress_events_from_message,
 )
-from agent.intent import is_report_query
+from agent.intent import OUT_OF_SCOPE, is_nev_query, is_report_query
+from agent.intro import INTRO, is_capability_query
 from agent.tokens import collect_token_usage, flatten_callback_usage, prefer_usage
 from agent.tools.budget import reset_web_budget, web_used
 from agent.tools.kb_tools import kb_search
@@ -89,6 +90,33 @@ def _needs_tools(trace: dict[str, Any], *, report: bool) -> bool:
     return False
 
 
+def _empty_trace() -> dict[str, Any]:
+    return {"tool_calls": [], "kb_calls": 0, "web_calls": 0, "retrieval_rounds": 0}
+
+
+def _short_circuit(text: str, domain: str) -> dict[str, Any]:
+    return {
+        "final_report": text,
+        "retrieval_rounds": 0,
+        "iteration_count": 0,
+        "tool_trace": _empty_trace(),
+        "tool_steps": [],
+        "sources": [],
+        "kb_calls": 0,
+        "web_calls": 0,
+        "web_attempts": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "domain": domain,
+    }
+
+
+def _refused(text: str) -> dict[str, Any]:
+    return _short_circuit(text, "out_of_scope")
+
+
 def run_research(
     query: str,
     *,
@@ -103,6 +131,12 @@ def run_research(
     q = (query or "").strip()
     if not q:
         raise ValueError("query is empty")
+
+    if is_capability_query(q):
+        return _short_circuit(INTRO.strip(), "capability")
+
+    if not is_nev_query(q):
+        return _refused(OUT_OF_SCOPE)
 
     report = is_report_query(q)
     reset_web_budget(3 if report else 1)
@@ -204,4 +238,5 @@ def run_research(
         "completion_tokens": usage["completion_tokens"],
         "total_tokens": usage["total_tokens"],
         "llm_calls": usage["llm_calls"],
+        "domain": "nev",
     }

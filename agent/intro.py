@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 INTRO = """你好，我是新能源汽车行业研究助手。
 
 我可以帮你：
@@ -19,24 +21,49 @@ INTRO = """你好，我是新能源汽车行业研究助手。
 退出：exit / quit / q / 退出
 """
 
-_CAPABILITY_QUERIES = frozenset(
+_CAPABILITY_EXACT = frozenset(
     {
         "你能做什么",
+        "你会做什么",
         "你是谁",
         "你会什么",
         "你可以做什么",
+        "你可以干什么",
         "能做什么",
         "你会干什么",
+        "你能干什么",
         "介绍一下",
         "介绍下自己",
         "自我介绍",
         "help",
         "帮助",
         "功能",
+        "whatcanyoudo",
+        "whoareyou",
     }
 )
 
+_CAPABILITY_PATTERNS = (
+    re.compile(r"你(能|会|可以).{0,8}(做|干)(什么|啥)"),
+    re.compile(r"你是谁"),
+    re.compile(r"^(请)?(自我)?介绍(一下|下自己)?$"),
+    re.compile(r"whatcanyoudo"),
+    re.compile(r"whoareyou"),
+)
+
+
+def _norm_capability(text: str) -> str:
+    t = (text or "").strip().lower()
+    t = t.rstrip("。.．！!？?，,、")
+    t = re.sub(r"\s+", "", t)
+    return t
+
 
 def is_capability_query(text: str) -> bool:
-    t = text.strip().lower().rstrip("。.！!？?")
-    return t in _CAPABILITY_QUERIES
+    """True for identity / help questions (no LLM)."""
+    t = _norm_capability(text)
+    if not t:
+        return False
+    if t in _CAPABILITY_EXACT:
+        return True
+    return any(p.search(t) for p in _CAPABILITY_PATTERNS)

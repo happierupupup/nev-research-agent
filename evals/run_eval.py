@@ -80,6 +80,7 @@ def _run_one(query: str, *, dry_run: bool) -> dict[str, Any]:
         "completion_tokens": meta.get("completion_tokens"),
         "total_tokens": meta.get("total_tokens"),
         "llm_calls": meta.get("llm_calls"),
+        "domain": meta.get("domain"),
     }
 
 
@@ -140,6 +141,7 @@ def run_suite(
                 "completion_tokens": run.get("completion_tokens"),
                 "total_tokens": run.get("total_tokens"),
                 "llm_calls": run.get("llm_calls"),
+                "domain": run.get("domain"),
                 "tool_trace": run.get("tool_trace"),
                 "hard_gates": gate_result,
                 "dimension_scores": dimension_scores,

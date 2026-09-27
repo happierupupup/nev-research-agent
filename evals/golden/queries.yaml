@@ -90,5 +90,35 @@ queries:
       min_web_calls: 1
       max_web_calls: 4
 
+  - id: O1
+    title: 域外-天气（应拒答、零工具）
+    query: 今天上海天气怎么样？
+    phase: 1
+    type: out_of_scope
+    focus:
+      - 拒答
+      - 不调用工具
+    hard_gates:
+      min_chars: 20
+      min_cited_facts: 0
+      max_wall_seconds: 15
+      max_kb_calls: 0
+      max_web_calls: 0
+
+  - id: O2
+    title: 域外-编程（应拒答、零工具）
+    query: 用 Python 写一个快速排序
+    phase: 1
+    type: out_of_scope
+    focus:
+      - 拒答
+      - 不调用工具
+    hard_gates:
+      min_chars: 20
+      min_cited_facts: 0
+      max_wall_seconds: 15
+      max_kb_calls: 0
+      max_web_calls: 0
+
 # Phase 2+ 可追加；保持 id 稳定以便 baseline 对比
-# S1 建议先跑: --ids Q1,Q2,G1
+# S1 建议先跑: --ids Q1,Q2,G1 ；领域门闩加 O1,O2

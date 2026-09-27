@@ -71,6 +71,28 @@ def test_hard_gates_fail_kb_calls():
     assert any("kb_calls" in f for f in r["failures"])
 
 
+def test_hard_gates_max_kb_calls():
+    r = check_hard_gates(
+        chars=80,
+        cited_facts=0,
+        wall_seconds=1,
+        kb_calls=0,
+        web_calls=0,
+        gates={"min_chars": 20, "min_cited_facts": 0, "max_kb_calls": 0, "max_web_calls": 0},
+    )
+    assert r["passed"] is True
+    r2 = check_hard_gates(
+        chars=80,
+        cited_facts=0,
+        wall_seconds=1,
+        kb_calls=1,
+        web_calls=0,
+        gates={"min_chars": 20, "min_cited_facts": 0, "max_kb_calls": 0, "max_web_calls": 0},
+    )
+    assert r2["passed"] is False
+    assert any("kb_calls" in f for f in r2["failures"])
+
+
 def test_compare_runs_includes_tools():
     baseline = {
         "results": [

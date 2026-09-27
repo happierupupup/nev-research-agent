@@ -100,6 +100,8 @@ def check_hard_gates(
         fails.append(f"web_calls {web_calls or 0} < {gates['min_web_calls']}")
     if "max_web_calls" in gates and int(web_calls or 0) > int(gates["max_web_calls"]):
         fails.append(f"web_calls {web_calls or 0} > {gates['max_web_calls']}")
+    if "max_kb_calls" in gates and int(kb_calls or 0) > int(gates["max_kb_calls"]):
+        fails.append(f"kb_calls {kb_calls or 0} > {gates['max_kb_calls']}")
     return {"passed": not fails, "failures": fails}
 
 
