@@ -7,3 +7,4 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KB_DOCS = ROOT / "data" / "kb"
 KB_INDEX = ROOT / "data" / "kb_index"
+MEMORY_DIR = ROOT / "data" / "memory" / "users"

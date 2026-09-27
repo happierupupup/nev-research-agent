@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
 
 import yaml  # type: ignore
 
-from evals.metrics import hit_at_k, precision_at_k, recall_at_k
+from evals.metrics import hit_at_k, precision_at_k, recall_at_k, write_baseline
 from kb import KnowledgeBase
 
 EVALS = Path(__file__).resolve().parent
@@ -92,9 +92,9 @@ def run_suite(*, tag: str, k: int | None, compare_tag: str | None) -> Path:
     }
 
     BASELINES.mkdir(parents=True, exist_ok=True)
-    out_path = BASELINES / f"retrieval_{tag}.json"
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Wrote {out_path}")
+    hist_path = write_baseline(BASELINES, f"retrieval_{tag}", payload)
+    print(f"Wrote {hist_path}")
+    print(f"Latest alias {BASELINES / f'retrieval_{tag}.json'}")
     print(f"  mean P@{top_k}={mean_p}  R@{top_k}={mean_r}  Hit@{top_k}={mean_hit}  n={len(results)}")
     for r in results:
         print(
@@ -121,7 +121,7 @@ def run_suite(*, tag: str, k: int | None, compare_tag: str | None) -> Path:
                 indent=2,
             )
         )
-    return out_path
+    return hist_path
 
 
 def main() -> None:

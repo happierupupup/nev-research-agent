@@ -1,0 +1,101 @@
+{
+  "tag": "after_memory",
+  "created_at": "2026-09-27T18:23:17.377337+00:00",
+  "suite": "memory",
+  "gates": {
+    "M2_no_history": true,
+    "M4_preference": true,
+    "M1_followup": true,
+    "M3_ltm": true
+  },
+  "summary": {
+    "followup_resolved": true,
+    "retrieval_not_skipped": true,
+    "memory_not_used_as_source": true,
+    "m2_refuses_bare_deixis": true,
+    "ltm_interest_hit": true,
+    "preference_recorded": true,
+    "inject_chars": 380,
+    "inject_cap": 800,
+    "tokens_turn1": 3632,
+    "tokens_turn2": 4792,
+    "token_delta_followup_vs_q1": 1160,
+    "gates_passed": 4,
+    "gates_total": 4,
+    "all_passed": true
+  },
+  "results": [
+    {
+      "id": "M2",
+      "query": "它主要用在哪些车上？",
+      "wall_seconds": 0.0,
+      "domain": "followup_unclear",
+      "total_tokens": 0,
+      "kb_calls": 0,
+      "passed": true,
+      "note": "无短期记忆时不得把「它」编成刀片电池"
+    },
+    {
+      "id": "M4",
+      "query": "以后短答",
+      "wall_seconds": 0.0,
+      "domain": "preference",
+      "total_tokens": 0,
+      "pref": "short",
+      "passed": true
+    },
+    {
+      "id": "M1a",
+      "query": "比亚迪刀片电池的核心卖点是什么？",
+      "wall_seconds": 7.44,
+      "domain": "nev",
+      "kb_calls": 1,
+      "web_calls": 0,
+      "prompt_tokens": 3227,
+      "completion_tokens": 405,
+      "total_tokens": 3632,
+      "llm_calls": 2,
+      "cited_facts": 4,
+      "search_query": "比亚迪刀片电池的核心卖点是什么？",
+      "memory_injected": false,
+      "passed": true
+    },
+    {
+      "id": "M1b",
+      "query": "它主要用在哪些车上？",
+      "wall_seconds": 13.37,
+      "domain": "nev",
+      "kb_calls": 1,
+      "web_calls": 1,
+      "prompt_tokens": 4313,
+      "completion_tokens": 479,
+      "total_tokens": 4792,
+      "llm_calls": 2,
+      "cited_facts": 3,
+      "search_query": "刀片电池 磷酸铁锂 三元锂 它主要用在哪些车上？",
+      "memory_injected": true,
+      "followup_resolved": true,
+      "retrieval_not_skipped": true,
+      "cites_memory_as_source": false,
+      "vehicle_mention": true,
+      "inject_chars": 380,
+      "inject_cap": 800,
+      "passed": true,
+      "report_preview": "## 思考过程\n问题拆解：用户询问“它”（即刀片电池）主要用在哪些车上。这是一个短问答，需要明确具体的车型列表。\n\n工具调用与结果分析：\n1.  **KB检索**：查询“比亚迪 刀片电池 搭载车型”。\n    *   `byd_blade_battery.md` 提到刀片电池广泛应用于“王朝/海洋等新能源车型”，但未列出具体车名。\n    *   `tesla_vs_byd_2024.md` 提到了技术路线对比，未涉及具体车型列表。\n2.  **Web检索**：查询“比亚迪 刀片电池 搭载车型 2023 2024”。\n    *   搜索结果中，比亚迪官网首页Snippet直接列出了包含刀片电池的系列：**夏、汉、宋、唐、秦、元、海豹、海狮、海豚、海鸥**。\n    *   其他结果多为通用介绍或招聘，无具体车型对应信息。\n\n采纳策略：由于KB中缺乏具体车型名称，而Web搜索的官方渠道Sn"
+    },
+    {
+      "id": "M3",
+      "query": "(session-end extract)",
+      "interests": [
+        "刀片",
+        "电池",
+        "刀片电池",
+        "比亚迪",
+        "BYD"
+      ],
+      "episode_n": 2,
+      "ltm_preview": "该用户近期关注：刀片、电池、刀片电池、比亚迪、BYD\n过往情景：比亚迪刀片电池的核心卖点是什么？ → 比亚迪刀片电池的核心卖点主要集中在以下四个方面： . **安全性**：这是刀片电池最突出的卖点。作为磷酸铁锂（LFP）电池，它在针刺测试等极端条件下表现出极高的稳定性，官方宣传中强调其“不起火”特性，相比三元锂电池具有更低的热失控风险。 . **空间利用率高**：通过创新的长薄电芯形态（即“刀片”形状），直接排列成电池包结构，显著提高了电池包内的体积利用率，（实体：刀片电池、磷酸铁锂、三元锂、比亚迪、供应链、BYD、刀片、电池）\n过往情景：它主要用在哪些车上？ → 比亚迪刀片电池主要搭载在比亚",
+      "passed": true
+    }
+  ]
+}

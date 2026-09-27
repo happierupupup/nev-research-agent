@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 # Markdown-ish citation patterns: [1], (来源: …), 【引】, bare URL
@@ -12,7 +15,22 @@ _JINYIN = re.compile(r"【\s*引\s*】")
 _URL = re.compile(r"https?://\S+")
 
 
-def count_chars(text: str) -> int:
+def write_baseline(directory: Path, stem: str, payload: dict[str, Any]) -> Path:
+    """Keep every run: timestamped file plus ``{stem}.json`` as the latest alias."""
+    directory.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    hist = directory / f"{stem}_{ts}.json"
+    latest = directory / f"{stem}.json"
+    hist.write_text(text, encoding="utf-8")
+    latest.write_text(text, encoding="utf-8")
+    return hist
+
+
+def unique_baseline_path(directory: Path, stem: str) -> Path:
+    """Immutable snapshot path: ``{stem}_{UTC}.json``."""
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return directory / f"{stem}_{ts}.json"
     return len(text or "")
 
 

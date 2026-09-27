@@ -25,7 +25,7 @@ if str(ROOT) not in sys.path:
 
 import yaml  # type: ignore
 
-from evals.metrics import check_hard_gates, compare_runs, count_chars, count_cited_facts
+from evals.metrics import check_hard_gates, compare_runs, count_chars, count_cited_facts, write_baseline
 
 EVALS = Path(__file__).resolve().parent
 BASELINES = EVALS / "baselines"
@@ -64,7 +64,7 @@ def _run_one(query: str, *, dry_run: bool) -> dict[str, Any]:
             raise SystemExit(
                 "Agent 未就绪。请先实现 agent.runtime.run_research，或使用 --dry-run。"
             ) from exc
-        out = run_research(query)
+        out = run_research(query)  # 黄金集不传 session / user_memory（S1.5 记忆默认关）
         report = out["final_report"] if isinstance(out, dict) else str(out)
         meta = out if isinstance(out, dict) else {}
     wall = time.perf_counter() - t0
@@ -161,9 +161,10 @@ def run_suite(
     }
 
     BASELINES.mkdir(parents=True, exist_ok=True)
-    out_path = BASELINES / f"{tag}.json"
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Wrote {out_path}")
+    hist_path = write_baseline(BASELINES, tag, payload)
+    latest = BASELINES / f"{tag}.json"
+    print(f"Wrote {hist_path}")
+    print(f"Latest alias {latest}")
 
     for r in results:
         status = "PASS" if r["hard_gates"]["passed"] else "FAIL"
@@ -182,7 +183,7 @@ def run_suite(
         print("\n=== Compare vs", compare_tag, "===")
         print(json.dumps(diff, ensure_ascii=False, indent=2))
 
-    return out_path
+    return hist_path
 
 
 def main() -> None:

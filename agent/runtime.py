@@ -31,6 +31,16 @@ from agent.intent import (
     sanitize_search_query,
 )
 from agent.intro import INTRO, is_capability_query
+from agent.memory import (
+    FOLLOWUP_UNCLEAR,
+    PREFERENCE_ACK,
+    SessionMemory,
+    UserMemoryStore,
+    extract_preferences_from_text,
+    format_memory_block,
+    looks_like_followup,
+    resolve_followup_query,
+)
 from agent.tokens import collect_token_usage, flatten_callback_usage, prefer_usage
 from agent.tools.budget import reset_web_budget, web_used
 from agent.tools.kb_tools import kb_search
@@ -123,11 +133,24 @@ def _refused(text: str) -> dict[str, Any]:
     return _short_circuit(text, "out_of_scope")
 
 
+def _compose_user_message(q: str, memory_block: str) -> str:
+    if not memory_block:
+        return q
+    return (
+        "【会话记忆，不是证据。禁止把其中数字或结论写成 (来源: …)。"
+        "本轮事实必须来自工具返回。】\n"
+        f"{memory_block}\n\n"
+        f"## 本轮问题\n{q}"
+    )
+
+
 def run_research(
     query: str,
     *,
     recursion_limit: int | None = None,
     on_event: ProgressCallback | None = None,
+    session: SessionMemory | None = None,
+    user_memory: UserMemoryStore | None = None,
 ) -> dict[str, Any]:
     """
     Run end-to-end research. Returns at least:
@@ -141,11 +164,28 @@ def run_research(
     if is_capability_query(q):
         return _short_circuit(INTRO.strip(), "capability")
 
+    prefs = extract_preferences_from_text(q)
+    if prefs and session is not None:
+        session.add_preferences(prefs)
+    if prefs and not is_nev_query(q) and not looks_like_followup(q):
+        return _short_circuit(PREFERENCE_ACK, "preference")
+
     if not is_nev_query(q):
-        return _refused(OUT_OF_SCOPE)
+        if looks_like_followup(q) and session and session.recent_entities():
+            pass
+        elif looks_like_followup(q):
+            return _short_circuit(FOLLOWUP_UNCLEAR, "followup_unclear")
+        else:
+            return _refused(OUT_OF_SCOPE)
 
     report = is_report_query(q)
     reset_web_budget(3 if report else 1)
+
+    search_seed = resolve_followup_query(q, session)
+    kb_q = sanitize_search_query(search_seed)
+    web_q = focus_web_query(search_seed)
+    memory_block = format_memory_block(session, user_memory, q)
+    user_text = _compose_user_message(q, memory_block)
 
     limit = recursion_limit or int(os.getenv("AGENT_RECURSION_LIMIT", _DEFAULT_RECURSION))
     graph = build_graph()
@@ -157,14 +197,14 @@ def run_research(
 
     seq = _stream(
         graph,
-        {"messages": [("user", q)]},
+        {"messages": [("user", user_text)]},
         config,
         messages,
         seq,
         on_event,
     )
     if not messages:
-        result = graph.invoke({"messages": [("user", q)]}, config=config)
+        result = graph.invoke({"messages": [("user", user_text)]}, config=config)
         messages = list(result.get("messages") or [])
 
     trace = extract_tool_trace(messages)
@@ -175,7 +215,7 @@ def run_research(
             on_event({"kind": "tool_call", "step": "nudge", "tool": "system", "query": "强制补检索"})
         seq = _stream(
             graph,
-            {"messages": [("user", q), *messages, HumanMessage(content=nudge)]},
+            {"messages": [("user", user_text), *messages, HumanMessage(content=nudge)]},
             config,
             messages,
             seq,
@@ -183,8 +223,6 @@ def run_research(
         )
         trace = extract_tool_trace(messages)
 
-    kb_q = sanitize_search_query(q)
-    web_q = focus_web_query(q)
     forced = False
     if int(trace.get("kb_calls") or 0) < 1:
         raw = kb_search.invoke({"query": kb_q})
@@ -204,7 +242,7 @@ def run_research(
             graph,
             {
                 "messages": [
-                    ("user", q),
+                    ("user", user_text),
                     *messages,
                     HumanMessage(
                         content=(
@@ -212,6 +250,7 @@ def run_research(
                             "每个关键事实后必须标注 (来源: KB/文件名.md) 或工具里出现的 (来源: https://...)。"
                             "## 回答 里至少 3 处文内标注（同一文件也要每处都标）。"
                             "## 信息来源 至少列 3 条。不要再调用工具；不要编造工具未返回的数字或链接。"
+                            "不要引用会话记忆作为来源。"
                         )
                     ),
                 ]
@@ -232,7 +271,7 @@ def run_research(
         collect_token_usage(messages),
         flatten_callback_usage(getattr(usage_cb, "usage_metadata", None)),
     )
-    return {
+    out = {
         "final_report": text,
         "retrieval_rounds": trace["retrieval_rounds"],
         "iteration_count": iterations,
@@ -247,4 +286,9 @@ def run_research(
         "total_tokens": usage["total_tokens"],
         "llm_calls": usage["llm_calls"],
         "domain": "nev",
+        "search_query": kb_q,
+        "memory_injected": bool(memory_block),
     }
+    if session is not None:
+        session.remember_from_result(q, out)
+    return out

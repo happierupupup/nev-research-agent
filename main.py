@@ -13,6 +13,7 @@ import json
 import sys
 
 from agent.intro import INTRO, is_capability_query
+from agent.memory import SessionMemory, UserMemoryStore, user_id_from_env
 
 DIVIDER = "─" * 56
 
@@ -112,7 +113,13 @@ def _print_intro() -> None:
     print(INTRO, end="" if INTRO.endswith("\n") else "\n")
 
 
-def _run_one(query: str, *, as_json: bool) -> None:
+def _run_one(
+    query: str,
+    *,
+    as_json: bool,
+    session: SessionMemory | None = None,
+    user_memory: UserMemoryStore | None = None,
+) -> None:
     if is_capability_query(query):
         if as_json:
             print(json.dumps({"final_report": INTRO.strip(), "sources": []}, ensure_ascii=False, indent=2))
@@ -126,7 +133,7 @@ def _run_one(query: str, *, as_json: bool) -> None:
     from agent.runtime import run_research
 
     if as_json:
-        out = run_research(query)
+        out = run_research(query, session=session, user_memory=user_memory)
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return
 
@@ -139,21 +146,42 @@ def _run_one(query: str, *, as_json: bool) -> None:
         seen["n"] += 1
         _print_event(ev)
 
-    out = run_research(query, on_event=on_event)
+    out = run_research(query, on_event=on_event, session=session, user_memory=user_memory)
     if seen["n"] == 0:
         print("(未调用工具)")
     _print_result(out, streamed=True)
+
+
+def _flush_memory(store: UserMemoryStore | None, session: SessionMemory | None) -> None:
+    if store is None or session is None:
+        return
+    if not session.queries and not session.pending_preferences and not session.pending_episodes:
+        return
+    store.ingest_session(session)
+    store.save()
 
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description="NEV Research Agent (S1)")
     p.add_argument("question", nargs="?", help="one-shot question (skip REPL)")
     p.add_argument("--json", action="store_true", help="print full JSON result")
+    p.add_argument(
+        "--memory",
+        action="store_true",
+        help="one-shot 也读写长期记忆（REPL 默认开启）",
+    )
+    p.add_argument("--user", default=None, help="长期记忆用户 id，默认 NEV_USER_ID 或 local")
     args = p.parse_args(argv)
+
+    uid = user_id_from_env(args.user)
+    use_memory = bool(args.memory or not args.question)
+    store = UserMemoryStore.load(uid) if use_memory else None
+    session = SessionMemory() if use_memory else None
 
     if args.question:
         try:
-            _run_one(args.question, as_json=args.json)
+            _run_one(args.question, as_json=args.json, session=session, user_memory=store)
+            _flush_memory(store, session)
         except Exception as exc:  # noqa: BLE001
             print(f"Error: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
@@ -165,15 +193,17 @@ def main(argv: list[str] | None = None) -> None:
         try:
             query = input("You: ").strip()
         except (KeyboardInterrupt, EOFError):
+            _flush_memory(store, session)
             print("\nBye.")
             break
         if not query:
             continue
         if _is_exit(query):
+            _flush_memory(store, session)
             print("Bye.")
             break
         try:
-            _run_one(query, as_json=args.json)
+            _run_one(query, as_json=args.json, session=session, user_memory=store)
         except Exception as exc:  # noqa: BLE001
             print(f"\nError: {exc}\n")
 
