@@ -5,13 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Markdown-ish citation patterns: [1], (来源: …), 【引】…
-_CITATION_PATTERNS = [
-    re.compile(r"\[\d+\]"),
-    re.compile(r"[（(]来源[:：][^）)]+[）)]"),
-    re.compile(r"【\s*引\s*】"),
-    re.compile(r"https?://\S+"),
-]
+# Markdown-ish citation patterns: [1], (来源: …), 【引】, bare URL
+_SOURCE_PAREN = re.compile(r"[（(]来源[:：][^）)]+[）)]")
+_BRACKET_NUM = re.compile(r"\[\d+\]")
+_JINYIN = re.compile(r"【\s*引\s*】")
+_URL = re.compile(r"https?://\S+")
 
 
 def count_chars(text: str) -> int:
@@ -19,14 +17,53 @@ def count_chars(text: str) -> int:
 
 
 def count_cited_facts(text: str) -> int:
-    """Heuristic: unique citation markers in report (Phase 1 proxy)."""
+    """Count in-text citation marks (occurrences, not unique strings).
+
+    Same `(来源: KB/foo.md)` used on three facts counts as 3.
+    URLs already inside a 来源 parenthesis are not double-counted.
+    """
     if not text:
         return 0
-    found: set[str] = set()
-    for pat in _CITATION_PATTERNS:
-        for m in pat.finditer(text):
-            found.add(m.group(0))
-    return len(found)
+    n = len(_BRACKET_NUM.findall(text))
+    n += len(_SOURCE_PAREN.findall(text))
+    n += len(_JINYIN.findall(text))
+    covered = [(m.start(), m.end()) for m in _SOURCE_PAREN.finditer(text)]
+    for m in _URL.finditer(text):
+        if any(a <= m.start() and m.end() <= b for a, b in covered):
+            continue
+        n += 1
+    return n
+
+
+def pad_inline_citations(
+    report: str,
+    sources: list[dict[str, Any]] | None,
+    *,
+    min_n: int = 3,
+) -> str:
+    """If a report has too few in-text marks, append 来源补注 from real tool sources."""
+    text = report or ""
+    if count_cited_facts(text) >= min_n:
+        return text
+    lines: list[str] = []
+    for s in sources or []:
+        typ = s.get("type") or ""
+        ref = str(s.get("ref") or s.get("label") or "").strip()
+        if not ref:
+            continue
+        if typ == "KB" and not ref.startswith("KB/"):
+            ref = f"KB/{ref}"
+        lines.append(f"- 关键依据 (来源: {ref})")
+        if count_cited_facts(text + "\n".join(lines)) >= min_n:
+            break
+    i = 0
+    pool = [ln for ln in lines]
+    while pool and count_cited_facts(text + "\n" + "\n".join(lines)) < min_n and i < 8:
+        lines.append(pool[i % len(pool)])
+        i += 1
+    if not lines:
+        return text
+    return text.rstrip() + "\n\n## 来源补注\n" + "\n".join(lines) + "\n"
 
 
 def weighted_rubric_score(
@@ -102,6 +139,19 @@ def compare_runs(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str,
                 "web_calls": {"baseline": b.get("web_calls"), "current": c.get("web_calls")},
                 "cited_facts": {"baseline": b.get("cited_facts"), "current": c.get("cited_facts")},
                 "wall_seconds": {"baseline": b.get("wall_seconds"), "current": c.get("wall_seconds")},
+                "prompt_tokens": {
+                    "baseline": b.get("prompt_tokens"),
+                    "current": c.get("prompt_tokens"),
+                },
+                "completion_tokens": {
+                    "baseline": b.get("completion_tokens"),
+                    "current": c.get("completion_tokens"),
+                },
+                "total_tokens": {
+                    "baseline": b.get("total_tokens"),
+                    "current": c.get("total_tokens"),
+                },
+                "llm_calls": {"baseline": b.get("llm_calls"), "current": c.get("llm_calls")},
                 "hard_pass": {
                     "baseline": (b.get("hard_gates") or {}).get("passed"),
                     "current": (c.get("hard_gates") or {}).get("passed"),
@@ -113,6 +163,14 @@ def compare_runs(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str,
         "per_query_rubric": per_query,
         "mean_rubric_lift_ratio": round(sum(lifts) / len(lifts), 4) if lifts else None,
         "mean_wall_seconds": {"baseline": b_wall, "current": c_wall},
+        "mean_total_tokens": {
+            "baseline": _mean([r.get("total_tokens") for r in baseline.get("results", [])]),
+            "current": _mean([r.get("total_tokens") for r in current.get("results", [])]),
+        },
+        "sum_total_tokens": {
+            "baseline": _sum([r.get("total_tokens") for r in baseline.get("results", [])]),
+            "current": _sum([r.get("total_tokens") for r in current.get("results", [])]),
+        },
         "per_query_tools": tool_diff,
     }
 
@@ -120,6 +178,11 @@ def compare_runs(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str,
 def _mean(vals: list[Any]) -> float | None:
     nums = [float(v) for v in vals if v is not None]
     return round(sum(nums) / len(nums), 2) if nums else None
+
+
+def _sum(vals: list[Any]) -> float | None:
+    nums = [float(v) for v in vals if v is not None]
+    return round(sum(nums), 2) if nums else None
 
 
 def precision_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:

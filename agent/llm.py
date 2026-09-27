@@ -31,6 +31,7 @@ def get_llm(temperature: float = 0) -> ChatOpenAI:
         "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         "temperature": temperature,
         "api_key": _api_key(),
+        "stream_usage": True,
     }
     base = _base_url()
     if base:

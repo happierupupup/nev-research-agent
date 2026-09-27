@@ -8,6 +8,7 @@ from evals.metrics import (
     count_chars,
     count_cited_facts,
     hit_at_k,
+    pad_inline_citations,
     precision_at_k,
     recall_at_k,
     weighted_rubric_score,
@@ -19,9 +20,32 @@ def test_count_cited_facts():
     assert count_cited_facts(text) >= 3
 
 
-def test_count_cited_facts_source_paren():
-    text = "刀片电池针刺不起火 (来源: KB/byd_blade_battery.md)。渗透率约 40% (来源: https://example.com/a)"
-    assert count_cited_facts(text) >= 2
+def test_count_cited_facts_url_inside_source_not_double():
+    text = "(来源: https://example.com/a) 另一处 (来源: https://example.com/b)"
+    assert count_cited_facts(text) == 2
+
+
+def test_count_cited_facts_repeats_same_source():
+    text = (
+        "A (来源: KB/byd_overseas_2024.md)。"
+        "B (来源: KB/byd_overseas_2024.md)。"
+        "C (来源: KB/byd_overseas_2024.md)。"
+    )
+    assert count_cited_facts(text) >= 3
+
+
+def test_pad_inline_citations_fills_gap():
+    out = pad_inline_citations(
+        "没有标注的研报正文。",
+        [
+            {"type": "KB", "ref": "KB/byd_overseas_2024.md", "label": "x"},
+            {"type": "KB", "ref": "KB/ev_trade_barriers.md", "label": "y"},
+            {"type": "Web", "ref": "https://example.com/a", "label": "z"},
+        ],
+        min_n=3,
+    )
+    assert count_cited_facts(out) >= 3
+    assert "来源补注" in out
 
 
 def test_hard_gates_pass():

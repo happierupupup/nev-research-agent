@@ -20,5 +20,10 @@ def allow_web_search() -> tuple[bool, int, int]:
     return True, _STATE["used"], cap
 
 
+def refund_web_search() -> None:
+    """Undo a counted call that returned an error / empty results."""
+    _STATE["used"] = max(0, int(_STATE["used"]) - 1)
+
+
 def web_used() -> int:
     return int(_STATE["used"])

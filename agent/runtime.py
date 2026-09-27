@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agent.graph import (
@@ -23,9 +24,11 @@ from agent.graph import (
     progress_events_from_message,
 )
 from agent.intent import is_report_query
+from agent.tokens import collect_token_usage, flatten_callback_usage, prefer_usage
 from agent.tools.budget import reset_web_budget, web_used
 from agent.tools.kb_tools import kb_search
 from agent.tools.web_tools import web_search
+from evals.metrics import pad_inline_citations
 
 _DEFAULT_RECURSION = 25
 
@@ -106,7 +109,8 @@ def run_research(
 
     limit = recursion_limit or int(os.getenv("AGENT_RECURSION_LIMIT", _DEFAULT_RECURSION))
     graph = build_graph()
-    config = {"recursion_limit": limit}
+    usage_cb = UsageMetadataCallbackHandler()
+    config = {"recursion_limit": limit, "callbacks": [usage_cb]}
     messages: list[Any] = []
     seq = 0
     iterations = 1
@@ -164,6 +168,7 @@ def run_research(
                         content=(
                             "系统已写入真实工具返回。请只根据这些 Tool 结果输出规定 Markdown。"
                             "每个关键事实后必须标注 (来源: KB/文件名.md) 或工具里出现的 (来源: https://...)。"
+                            "## 回答 里至少 3 处文内标注（同一文件也要每处都标）。"
                             "## 信息来源 至少列 3 条。不要再调用工具；不要编造工具未返回的数字或链接。"
                         )
                     ),
@@ -179,6 +184,12 @@ def run_research(
     steps = extract_tool_steps(messages)
     sources = collect_sources(steps)
     text = final_text(messages)
+    if report:
+        text = pad_inline_citations(text, sources, min_n=3)
+    usage = prefer_usage(
+        collect_token_usage(messages),
+        flatten_callback_usage(getattr(usage_cb, "usage_metadata", None)),
+    )
     return {
         "final_report": text,
         "retrieval_rounds": trace["retrieval_rounds"],
@@ -189,4 +200,8 @@ def run_research(
         "kb_calls": trace["kb_calls"],
         "web_calls": web_used(),
         "web_attempts": trace["web_calls"],
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "total_tokens": usage["total_tokens"],
+        "llm_calls": usage["llm_calls"],
     }

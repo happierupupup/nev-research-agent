@@ -76,6 +76,10 @@ def _run_one(query: str, *, dry_run: bool) -> dict[str, Any]:
         "kb_calls": meta.get("kb_calls"),
         "web_calls": meta.get("web_calls"),
         "tool_trace": meta.get("tool_trace"),
+        "prompt_tokens": meta.get("prompt_tokens"),
+        "completion_tokens": meta.get("completion_tokens"),
+        "total_tokens": meta.get("total_tokens"),
+        "llm_calls": meta.get("llm_calls"),
     }
 
 
@@ -118,7 +122,8 @@ def run_suite(
         print(
             f"  [{status}] {item['id']}: chars={chars} cites={cited} "
             f"wall={run['wall_seconds']}s kb={run.get('kb_calls')} web={run.get('web_calls')} "
-            f"failures={gate_result['failures']}",
+            f"tok={run.get('total_tokens')} (p={run.get('prompt_tokens')}/c={run.get('completion_tokens')}"
+            f"/calls={run.get('llm_calls')}) failures={gate_result['failures']}",
             flush=True,
         )
         results.append(
@@ -131,6 +136,10 @@ def run_suite(
                 "retrieval_rounds": run.get("retrieval_rounds"),
                 "kb_calls": run.get("kb_calls"),
                 "web_calls": run.get("web_calls"),
+                "prompt_tokens": run.get("prompt_tokens"),
+                "completion_tokens": run.get("completion_tokens"),
+                "total_tokens": run.get("total_tokens"),
+                "llm_calls": run.get("llm_calls"),
                 "tool_trace": run.get("tool_trace"),
                 "hard_gates": gate_result,
                 "dimension_scores": dimension_scores,
@@ -159,7 +168,7 @@ def run_suite(
         print(
             f"  [{status}] {r['id']}: chars={r['chars']} cites={r['cited_facts']} "
             f"wall={r['wall_seconds']}s kb={r.get('kb_calls')} web={r.get('web_calls')} "
-            f"failures={r['hard_gates']['failures']}"
+            f"tok={r.get('total_tokens')} failures={r['hard_gates']['failures']}"
         )
 
     if compare_tag:

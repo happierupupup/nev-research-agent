@@ -95,6 +95,9 @@ def _print_result(out: dict, *, streamed: bool) -> None:
     trace = out.get("tool_trace") or {}
     print(
         f"\ntools: kb={out.get('kb_calls', 0)} web={out.get('web_calls', 0)} "
+        f"tokens={out.get('total_tokens', 0)} "
+        f"(p={out.get('prompt_tokens', 0)}/c={out.get('completion_tokens', 0)}"
+        f"/llm={out.get('llm_calls', 0)}) "
         f"calls={trace.get('tool_calls')}"
     )
     print()
