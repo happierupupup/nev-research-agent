@@ -27,7 +27,7 @@ from agent.memory import (  # noqa: E402
     format_memory_block,
 )
 from agent.runtime import run_research  # noqa: E402
-from evals.metrics import count_cited_facts, write_baseline
+from evals.metrics import attach_run_meta, count_cited_facts, write_baseline
 
 BASELINES = Path(__file__).resolve().parent / "baselines"
 
@@ -43,6 +43,16 @@ def _row(case_id: str, **kwargs: Any) -> dict[str, Any]:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--tag", default="after_memory")
+    p.add_argument(
+        "--method",
+        default=(
+            "S1.5 混合短期记忆（近窗结构化回合 + 溢出摘要）"
+            " + 按用户长期画像（兴趣关键词 / 偏好 / 情景笔记）。"
+            "黄金集 run_research 仍不传 session。"
+        ),
+        help="这次测的记忆方法，写入 JSON",
+    )
+    p.add_argument("--notes", default="", help="补充说明，可选")
     args = p.parse_args()
 
     results: list[dict[str, Any]] = []
@@ -205,19 +215,26 @@ def main() -> None:
         "all_passed": all(gates.values()),
     }
 
-    payload = {
-        "tag": args.tag,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "suite": "memory",
-        "gates": gates,
-        "summary": summary,
-        "results": results,
-    }
+    payload = attach_run_meta(
+        {
+            "tag": args.tag,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "suite": "memory",
+            "gates": gates,
+            "summary": summary,
+            "results": results,
+        },
+        method=args.method,
+        notes=args.notes,
+        code=["agent/memory.py", "agent/runtime.py", "main.py"],
+        compare_to=None,
+    )
     BASELINES.mkdir(parents=True, exist_ok=True)
     hist_path = write_baseline(BASELINES, args.tag, payload)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"Wrote {hist_path}")
     print(f"Latest alias {BASELINES / f'{args.tag}.json'}")
+    print(f"Method: {args.method}")
     if not summary["all_passed"]:
         failed = [k for k, v in gates.items() if not v]
         raise SystemExit(f"memory gates failed: {failed}")

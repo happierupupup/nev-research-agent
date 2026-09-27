@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,54 @@ _SOURCE_PAREN = re.compile(r"[（(]来源[:：][^）)]+[）)]")
 _BRACKET_NUM = re.compile(r"\[\d+\]")
 _JINYIN = re.compile(r"【\s*引\s*】")
 _URL = re.compile(r"https?://\S+")
+
+
+def git_snapshot(root: Path | None = None) -> dict[str, Any]:
+    """Short commit id so a JSON can be matched back to code."""
+    cwd = str(root or Path(__file__).resolve().parents[1])
+    meta: dict[str, Any] = {"git_commit": None, "git_branch": None, "git_dirty": None}
+    try:
+        meta["git_commit"] = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=cwd,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        meta["git_branch"] = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=cwd,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        dirty = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            cwd=cwd,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        meta["git_dirty"] = bool(dirty.strip())
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return meta
+
+
+def attach_run_meta(
+    payload: dict[str, Any],
+    *,
+    method: str,
+    notes: str = "",
+    code: list[str] | None = None,
+    compare_to: str | None = None,
+) -> dict[str, Any]:
+    """Describe which approach this snapshot measured."""
+    payload["method"] = {
+        "name": (method or "").strip(),
+        "notes": (notes or "").strip() or None,
+        "code": code or [],
+        "compare_to": compare_to,
+        **git_snapshot(),
+    }
+    return payload
 
 
 def write_baseline(directory: Path, stem: str, payload: dict[str, Any]) -> Path:
@@ -27,10 +76,7 @@ def write_baseline(directory: Path, stem: str, payload: dict[str, Any]) -> Path:
     return hist
 
 
-def unique_baseline_path(directory: Path, stem: str) -> Path:
-    """Immutable snapshot path: ``{stem}_{UTC}.json``."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return directory / f"{stem}_{ts}.json"
+def count_chars(text: str) -> int:
     return len(text or "")
 
 
@@ -180,6 +226,10 @@ def compare_runs(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str,
         )
 
     return {
+        "method": {
+            "baseline": baseline.get("method"),
+            "current": current.get("method"),
+        },
         "per_query_rubric": per_query,
         "mean_rubric_lift_ratio": round(sum(lifts) / len(lifts), 4) if lifts else None,
         "mean_wall_seconds": {"baseline": b_wall, "current": c_wall},

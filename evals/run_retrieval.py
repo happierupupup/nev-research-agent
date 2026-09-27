@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
 
 import yaml  # type: ignore
 
-from evals.metrics import hit_at_k, precision_at_k, recall_at_k, write_baseline
+from evals.metrics import attach_run_meta, hit_at_k, precision_at_k, recall_at_k, write_baseline
 from kb import KnowledgeBase
 
 EVALS = Path(__file__).resolve().parent
@@ -47,7 +47,14 @@ def _unique(items: list[str]) -> list[str]:
     return out
 
 
-def run_suite(*, tag: str, k: int | None, compare_tag: str | None) -> Path:
+def run_suite(
+    *,
+    tag: str,
+    k: int | None,
+    compare_tag: str | None,
+    method: str,
+    notes: str = "",
+) -> Path:
     spec = _load_yaml(QRELS)
     top_k = int(k or spec.get("k") or 4)
     kb = KnowledgeBase()
@@ -78,23 +85,30 @@ def run_suite(*, tag: str, k: int | None, compare_tag: str | None) -> Path:
     mean_r = round(sum(r["r_at_k"] for r in results) / n, 4)
     mean_hit = round(sum(r["hit_at_k"] for r in results) / n, 4)
 
-    payload = {
-        "tag": tag,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "suite": "retrieval",
-        "k": top_k,
-        "n_queries": len(results),
-        "wall_seconds": wall,
-        "mean_p_at_k": mean_p,
-        "mean_r_at_k": mean_r,
-        "mean_hit_at_k": mean_hit,
-        "results": results,
-    }
+    payload = attach_run_meta(
+        {
+            "tag": tag,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "suite": "retrieval",
+            "k": top_k,
+            "n_queries": len(results),
+            "wall_seconds": wall,
+            "mean_p_at_k": mean_p,
+            "mean_r_at_k": mean_r,
+            "mean_hit_at_k": mean_hit,
+            "results": results,
+        },
+        method=method,
+        notes=notes,
+        code=["kb/__init__.py", "scripts/ingest_kb.py", "evals/retrieval/qrels.yaml"],
+        compare_to=compare_tag,
+    )
 
     BASELINES.mkdir(parents=True, exist_ok=True)
     hist_path = write_baseline(BASELINES, f"retrieval_{tag}", payload)
     print(f"Wrote {hist_path}")
     print(f"Latest alias {BASELINES / f'retrieval_{tag}.json'}")
+    print(f"Method: {method}")
     print(f"  mean P@{top_k}={mean_p}  R@{top_k}={mean_r}  Hit@{top_k}={mean_hit}  n={len(results)}")
     for r in results:
         print(
@@ -129,9 +143,21 @@ def main() -> None:
     p.add_argument("--tag", required=True, help="snapshot name, e.g. kb_expand")
     p.add_argument("--k", type=int, default=None, help="override qrels k (default 4)")
     p.add_argument("--compare", default=None, help="previous retrieval tag")
+    p.add_argument(
+        "--method",
+        default="本地 JSON 余弦检索（DashScope embed）P@k / R@k / Hit@k，不跑对话 LLM",
+        help="这次测的检索方法，写入 JSON",
+    )
+    p.add_argument("--notes", default="", help="补充说明，可选")
     args = p.parse_args()
     try:
-        run_suite(tag=args.tag, k=args.k, compare_tag=args.compare)
+        run_suite(
+            tag=args.tag,
+            k=args.k,
+            compare_tag=args.compare,
+            method=args.method,
+            notes=args.notes,
+        )
     except FileNotFoundError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

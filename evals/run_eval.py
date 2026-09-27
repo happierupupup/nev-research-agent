@@ -25,7 +25,14 @@ if str(ROOT) not in sys.path:
 
 import yaml  # type: ignore
 
-from evals.metrics import check_hard_gates, compare_runs, count_chars, count_cited_facts, write_baseline
+from evals.metrics import (
+    attach_run_meta,
+    check_hard_gates,
+    compare_runs,
+    count_chars,
+    count_cited_facts,
+    write_baseline,
+)
 
 EVALS = Path(__file__).resolve().parent
 BASELINES = EVALS / "baselines"
@@ -90,6 +97,8 @@ def run_suite(
     dry_run: bool,
     compare_tag: str | None,
     ids: set[str] | None = None,
+    method: str,
+    notes: str = "",
 ) -> Path:
     suite = _load_yaml(GOLDEN)
     rubric = _load_yaml(RUBRIC)
@@ -151,20 +160,27 @@ def run_suite(
             }
         )
 
-    payload = {
-        "tag": tag,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "dry_run": dry_run,
-        "suite": "golden",
-        "rubric_version": rubric.get("version"),
-        "results": results,
-    }
+    payload = attach_run_meta(
+        {
+            "tag": tag,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "dry_run": dry_run,
+            "suite": "golden",
+            "rubric_version": rubric.get("version"),
+            "results": results,
+        },
+        method=method,
+        notes=notes,
+        code=["agent/runtime.py", "agent/graph.py", "agent/prompts.py"],
+        compare_to=compare_tag,
+    )
 
     BASELINES.mkdir(parents=True, exist_ok=True)
     hist_path = write_baseline(BASELINES, tag, payload)
     latest = BASELINES / f"{tag}.json"
     print(f"Wrote {hist_path}")
     print(f"Latest alias {latest}")
+    print(f"Method: {method}")
 
     for r in results:
         status = "PASS" if r["hard_gates"]["passed"] else "FAIL"
@@ -201,6 +217,12 @@ def main() -> None:
         default=None,
         help="comma-separated query ids, e.g. Q1,Q2,G1 (default: all)",
     )
+    p.add_argument(
+        "--method",
+        default=None,
+        help="这次测的方法/改动（必填，除非 --dry-run），写入 JSON 供日后对照",
+    )
+    p.add_argument("--notes", default="", help="补充说明，可选")
     args = p.parse_args()
     dry = args.dry_run
     if not dry:
@@ -210,8 +232,24 @@ def main() -> None:
         except ImportError:
             print("agent.runtime missing → falling back to --dry-run")
             dry = True
+    method = (args.method or "").strip()
+    if not method:
+        if dry:
+            method = "dry-run stub reports；不跑 LLM / 工具"
+        else:
+            raise SystemExit(
+                "请用 --method 写明本次测的是什么方法，例如：\n"
+                "  --method 'S1 ReAct + 领域门闩；黄金集关记忆'"
+            )
     id_set = {x.strip() for x in args.ids.split(",") if x.strip()} if args.ids else None
-    run_suite(tag=args.tag, dry_run=dry, compare_tag=args.compare, ids=id_set)
+    run_suite(
+        tag=args.tag,
+        dry_run=dry,
+        compare_tag=args.compare,
+        ids=id_set,
+        method=method,
+        notes=args.notes,
+    )
 
 
 if __name__ == "__main__":

@@ -16,5 +16,5 @@ notes/
 data/kb_index/
 plan.md
 docs/
-# evals/baselines/*.json
+evals/baselines/
 data/

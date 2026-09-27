@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from evals.metrics import (
+    attach_run_meta,
     check_hard_gates,
     compare_runs,
     count_chars,
@@ -106,6 +107,22 @@ def test_compare_runs_includes_tools():
     }
     diff = compare_runs(baseline, current)
     assert diff["per_query_tools"][0]["kb_calls"]["current"] == 1
+    assert "method" in diff
+
+
+def test_attach_run_meta_records_method():
+    payload = attach_run_meta(
+        {"tag": "x", "results": []},
+        method="S1.5 STM+LTM",
+        notes="指代消解",
+        code=["agent/memory.py"],
+        compare_to="s1_tokens",
+    )
+    m = payload["method"]
+    assert m["name"] == "S1.5 STM+LTM"
+    assert m["notes"] == "指代消解"
+    assert "agent/memory.py" in m["code"]
+    assert m["compare_to"] == "s1_tokens"
 
 
 def test_hard_gates_fail_chars():
