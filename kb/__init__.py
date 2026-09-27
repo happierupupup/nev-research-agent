@@ -185,7 +185,14 @@ class KnowledgeBase:
         if len(self.chunks) != len(self.vectors):
             raise ValueError("chunks.jsonl and vectors.json length mismatch; re-ingest")
 
-    def search(self, query: str, top_k: int = 4) -> list[Hit]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 4,
+        *,
+        exclude_ids: set[str] | None = None,
+        exclude_sources: set[str] | None = None,
+    ) -> list[Hit]:
         from agent.llm import get_embeddings
 
         if not query.strip():
@@ -196,7 +203,34 @@ class KnowledgeBase:
             for c, v in zip(self.chunks, self.vectors)
         ]
         scored.sort(key=lambda h: h.score, reverse=True)
-        return scored[:top_k]
+        return take_hits(
+            scored,
+            top_k=top_k,
+            exclude_ids=exclude_ids,
+            exclude_sources=exclude_sources,
+        )
+
+
+def take_hits(
+    scored: list[Hit],
+    top_k: int,
+    *,
+    exclude_ids: set[str] | None = None,
+    exclude_sources: set[str] | None = None,
+) -> list[Hit]:
+    """Keep top_k after dropping already-seen chunk ids / files."""
+    skip_ids = exclude_ids or set()
+    skip_src = exclude_sources or set()
+    out: list[Hit] = []
+    for h in scored:
+        if h.chunk.id in skip_ids:
+            continue
+        if h.chunk.source in skip_src:
+            continue
+        out.append(h)
+        if len(out) >= top_k:
+            break
+    return out
 
 
 def format_context(hits: Iterable[Hit]) -> str:

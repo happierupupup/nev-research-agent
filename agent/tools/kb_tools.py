@@ -11,26 +11,47 @@ from langchain_core.tools import tool
 def kb_search(query: str, top_k: int = 4) -> str:
     """Search the local NEV knowledge base (ingested docs under data/kb).
 
-    Use for facts already in the corpus (e.g. blade battery demos, sample
-    penetration notes). Returns JSON list of hits with source, title, score, text.
+    Query with topic keywords (company, year, market), not verbs like 分析/梳理.
+    Use for facts already in the corpus. Returns JSON hits with source, title, score, text.
     """
+    from agent.intent import sanitize_search_query
+    from agent.tools.resilience import run_kb_search
     from kb import KnowledgeBase
 
+    query = sanitize_search_query(query)
+
+    k = max(1, min(int(top_k), 8))
     try:
         kb = KnowledgeBase()
     except FileNotFoundError as exc:
-        return json.dumps({"error": str(exc), "hits": []}, ensure_ascii=False)
+        return json.dumps(
+            {"error": str(exc), "hits": [], "degraded": True, "tries": 0, "fallback": "stop"},
+            ensure_ascii=False,
+        )
 
-    hits = kb.search(query, top_k=max(1, min(int(top_k), 8)))
+    def _search(q: str, kk: int, exclude_ids: set[str], exclude_sources: set[str]):
+        return kb.search(
+            q,
+            top_k=kk,
+            exclude_ids=exclude_ids,
+            exclude_sources=exclude_sources,
+        )
+
+    hits, meta = run_kb_search(query, k, _search)
+    meta = {**meta, "query_used": query}
+    if meta.get("error") and not hits:
+        return json.dumps({"hits": [], **meta}, ensure_ascii=False)
     payload = {
         "hits": [
             {
+                "id": h.chunk.id,
                 "source": h.chunk.source,
                 "title": h.chunk.title,
                 "score": round(h.score, 4),
                 "text": h.chunk.text,
             }
             for h in hits
-        ]
+        ],
+        **meta,
     }
     return json.dumps(payload, ensure_ascii=False)

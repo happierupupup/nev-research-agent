@@ -70,9 +70,68 @@ OUT_OF_SCOPE = (
 )
 
 
+# Task verbs — strip from search queries only. Keep topic words like 战略/风险.
+_SEARCH_TASK_PREFIXES = (
+    "请帮我",
+    "请你",
+    "帮我",
+    "请",
+    "分析一下",
+    "分析下",
+    "分析",
+    "梳理一下",
+    "梳理下",
+    "梳理",
+    "对比一下",
+    "对比下",
+    "对比",
+    "评估一下",
+    "研究一下",
+    "研究报告：",
+    "研报：",
+)
+
+
 def is_report_query(text: str) -> bool:
     t = (text or "").strip()
     return any(m in t for m in _REPORT_MARKERS)
+
+
+_LEADING_YEAR = re.compile(r"^(?:20\d{2}\s*年?\s*)+")
+
+
+def sanitize_search_query(text: str) -> str:
+    """Drop leading 分析/梳理/对比 etc. Search engines treat them as the topic."""
+    t = (text or "").strip()
+    if not t:
+        return t
+    prefixes = tuple(sorted(_SEARCH_TASK_PREFIXES, key=len, reverse=True))
+    guard = 0
+    while guard < 6:
+        guard += 1
+        hit = False
+        for p in prefixes:
+            if t.startswith(p):
+                t = t[len(p) :].lstrip(" \t：:，,、")
+                hit = True
+                break
+        if not hit:
+            break
+    t = t.strip(" \t：:，,、")
+    return t or (text or "").strip()
+
+
+def focus_web_query(text: str) -> str:
+    """Move a leading year to the end so Bing does not search the calendar year."""
+    t = sanitize_search_query(text)
+    m = _LEADING_YEAR.match(t)
+    if not m:
+        return t
+    rest = t[m.end() :].strip(" \t：:，,、")
+    year = re.sub(r"\s+", "", m.group(0))
+    if rest:
+        return f"{rest} {year}"
+    return t
 
 
 def is_nev_query(text: str) -> bool:

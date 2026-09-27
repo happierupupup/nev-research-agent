@@ -23,7 +23,13 @@ from agent.graph import (
     payload_messages,
     progress_events_from_message,
 )
-from agent.intent import OUT_OF_SCOPE, is_nev_query, is_report_query
+from agent.intent import (
+    OUT_OF_SCOPE,
+    focus_web_query,
+    is_nev_query,
+    is_report_query,
+    sanitize_search_query,
+)
 from agent.intro import INTRO, is_capability_query
 from agent.tokens import collect_token_usage, flatten_callback_usage, prefer_usage
 from agent.tools.budget import reset_web_budget, web_used
@@ -177,18 +183,20 @@ def run_research(
         )
         trace = extract_tool_trace(messages)
 
+    kb_q = sanitize_search_query(q)
+    web_q = focus_web_query(q)
     forced = False
     if int(trace.get("kb_calls") or 0) < 1:
-        raw = kb_search.invoke({"query": q})
-        messages.extend(_forced_pair("kb_search", q, raw))
-        _emit(on_event, {"kind": "tool_call", "step": "forced", "tool": "kb_search", "query": q})
-        _emit(on_event, {"kind": "tool_result", "preview": (raw or "")[:240]})
+        raw = kb_search.invoke({"query": kb_q})
+        messages.extend(_forced_pair("kb_search", kb_q, raw))
+        _emit(on_event, {"kind": "tool_call", "step": "forced", "tool": "kb_search", "query": kb_q})
+        _emit(on_event, {"kind": "tool_result", "tool": "kb_search", "preview": (raw or "")[:240]})
         forced = True
     if report and int(extract_tool_trace(messages).get("web_calls") or 0) < 1:
-        raw = web_search.invoke({"query": q})
-        messages.extend(_forced_pair("web_search", q, raw))
-        _emit(on_event, {"kind": "tool_call", "step": "forced", "tool": "web_search", "query": q})
-        _emit(on_event, {"kind": "tool_result", "preview": (raw or "")[:240]})
+        raw = web_search.invoke({"query": web_q})
+        messages.extend(_forced_pair("web_search", web_q, raw))
+        _emit(on_event, {"kind": "tool_call", "step": "forced", "tool": "web_search", "query": web_q})
+        _emit(on_event, {"kind": "tool_result", "tool": "web_search", "preview": (raw or "")[:240]})
         forced = True
     if forced:
         iterations += 1

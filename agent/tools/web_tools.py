@@ -148,13 +148,42 @@ def _search_public_web(query: str, n: int) -> list[dict]:
     return _search_bing(query, n)
 
 
+def run_web_search(query: str, n: int) -> tuple[list[dict], dict]:
+    """One logical search: walk providers until quality is good enough, then stop."""
+    from agent.intent import focus_web_query
+    from agent.tools.resilience import Strategy, alt_web_query, execute_strategies
+
+    query = focus_web_query(query)
+
+    n = max(1, min(int(n), 8))
+    strategies: list[Strategy] = []
+    if (os.getenv("TAVILY_API_KEY") or "").strip():
+        strategies.append(
+            Strategy("tavily", "tavily", query, lambda q=query, k=n: _search_tavily(q, k))
+        )
+    strategies.append(
+        Strategy("duckduckgo", "duckduckgo", query, lambda q=query, k=n: _search_duckduckgo(q, k))
+    )
+    strategies.append(Strategy("bing", "bing", query, lambda q=query, k=n: _search_bing(q, k)))
+    alt = alt_web_query(query)
+    if alt:
+        strategies.append(
+            Strategy("bing_alt", "bing", alt, lambda q=alt, k=n: _search_bing(q, k))
+        )
+    hits, meta = execute_strategies(strategies)
+    meta = {**meta, "query_used": query}
+    return hits, meta
+
+
 @tool
 def web_search(query: str, max_results: int = 5) -> str:
     """Search the public web for NEV / auto industry information.
 
-    Prefer this for timely facts not in the local KB (news, official stats,
+    Prefer topic keywords (company, year, market), not verbs like 分析/梳理/对比.
+    Use this for timely facts not in the local KB (news, official stats,
     company announcements). Returns JSON list with title, url, snippet,
-    retrieved_at. Do not call again after a budget-exhausted error.
+    retrieved_at. If degraded=true or error, do not repeat the same query;
+    use kb_search and write from existing evidence.
     """
     from agent.tools.budget import allow_web_search, refund_web_search
 
@@ -164,26 +193,26 @@ def web_search(query: str, max_results: int = 5) -> str:
             {
                 "error": f"web_search budget exhausted (max={cap})",
                 "results": [],
+                "degraded": True,
+                "fallback": "kb",
             },
             ensure_ascii=False,
         )
 
     n = max(1, min(int(max_results), 8))
-    try:
-        if (os.getenv("TAVILY_API_KEY") or "").strip():
-            hits = _search_tavily(query, n)
-        else:
-            hits = _search_public_web(query, n)
-    except Exception as exc:  # noqa: BLE001
-        refund_web_search()
-        return json.dumps(
-            {"error": f"{type(exc).__name__}: {exc}", "results": [], "web_used": used - 1},
-            ensure_ascii=False,
-        )
+    hits, meta = run_web_search(query, n)
     if not hits:
         refund_web_search()
         return json.dumps(
-            {"error": "web_search returned 0 results", "results": [], "web_used": used - 1},
+            {
+                "error": "web_search failed after quality-gated retries",
+                "results": [],
+                "web_used": used - 1,
+                **meta,
+            },
             ensure_ascii=False,
         )
-    return json.dumps({"results": hits, "web_used": used, "web_max": cap}, ensure_ascii=False)
+    return json.dumps(
+        {"results": hits, "web_used": used, "web_max": cap, **meta},
+        ensure_ascii=False,
+    )

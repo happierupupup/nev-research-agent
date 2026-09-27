@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kb import _split_markdown, build_chunks, format_context, iter_doc_files
-from kb import Hit, Chunk
+from kb import Chunk, Hit, _split_markdown, build_chunks, format_context, iter_doc_files, take_hits
+
+
+def test_take_hits_skips_seen_ids_and_sources():
+    scored = [
+        Hit(Chunk(id="a.md::0", text="a0", source="a.md", title="t"), 0.9),
+        Hit(Chunk(id="a.md::1", text="a1", source="a.md", title="t"), 0.8),
+        Hit(Chunk(id="b.md::0", text="b0", source="b.md", title="t"), 0.7),
+    ]
+    out = take_hits(scored, top_k=4, exclude_ids={"a.md::0"}, exclude_sources={"a.md"})
+    assert [h.chunk.id for h in out] == ["b.md::0"]
 
 
 def test_split_markdown_headings():

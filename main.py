@@ -43,7 +43,9 @@ def _print_event(ev: dict) -> None:
     if kind == "tool_result":
         preview = ev.get("preview") or ""
         if preview:
-            print(f"    → {preview}", flush=True)
+            tool = ev.get("tool") or ""
+            tag = f"[{tool}] " if tool else ""
+            print(f"    → {tag}{preview}", flush=True)
         return
     if kind == "answer_ready":
         print("    ✓ 检索结束，正在输出回答", flush=True)

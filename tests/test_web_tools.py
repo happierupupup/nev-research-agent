@@ -42,21 +42,16 @@ def test_ddgs_client_accepts_primp_impersonate():
 
 def test_web_search_refunds_budget_on_failure(monkeypatch):
     budget.reset_web_budget(3)
-    prev = web_tools._DDG_DISABLED
-    web_tools._DDG_DISABLED = True
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-
-    def boom(*_a, **_k):
-        raise RuntimeError("offline")
-
-    monkeypatch.setattr(web_tools, "_search_public_web", boom)
-    try:
-        out = json.loads(web_tools.web_search.invoke({"query": "BYD"}))
-        assert out.get("error")
-        assert out.get("results") == []
-        assert budget.web_used() == 0
-    finally:
-        web_tools._DDG_DISABLED = prev
+    monkeypatch.setattr(
+        web_tools,
+        "run_web_search",
+        lambda *_a, **_k: ([], {"quality": 0.0, "degraded": True, "fallback": "kb", "attempts": []}),
+    )
+    out = json.loads(web_tools.web_search.invoke({"query": "BYD"}))
+    assert out.get("error")
+    assert out.get("results") == []
+    assert budget.web_used() == 0
 
 
 def test_web_search_counts_success(monkeypatch):
@@ -64,16 +59,19 @@ def test_web_search_counts_success(monkeypatch):
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.setattr(
         web_tools,
-        "_search_public_web",
-        lambda *_a, **_k: [
-            {
-                "title": "t",
-                "url": "https://example.com/a",
-                "snippet": "s",
-                "retrieved_at": "t",
-                "provider": "bing",
-            }
-        ],
+        "run_web_search",
+        lambda *_a, **_k: (
+            [
+                {
+                    "title": "t",
+                    "url": "https://example.com/a",
+                    "snippet": "s",
+                    "retrieved_at": "t",
+                    "provider": "bing",
+                }
+            ],
+            {"quality": 0.7, "degraded": False, "fallback": None, "attempts": []},
+        ),
     )
     out = json.loads(web_tools.web_search.invoke({"query": "BYD"}))
     assert out.get("results")
