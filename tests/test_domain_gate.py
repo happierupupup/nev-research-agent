@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.intent import OUT_OF_SCOPE
+from agent.core.intent import OUT_OF_SCOPE
 from agent.runtime import run_research
 
 

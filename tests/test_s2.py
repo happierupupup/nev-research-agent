@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agent.agents.supervisor import decide_node, fallback_plan
-from agent.agents.verifier import heuristic_verify
-from agent.schemas import critical_issues, parse_issues
+from agent.s2.supervisor import decide_node, fallback_plan
+from agent.s2.verifier import heuristic_verify
+from agent.core.schemas import critical_issues, parse_issues
 
 
 def test_parse_issues_fenced():

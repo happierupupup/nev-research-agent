@@ -9,8 +9,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC = ROOT / "src"
+for p in (str(ROOT), str(SRC)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from kb import ask  # noqa: E402
 
@@ -32,7 +34,7 @@ def main() -> None:
             _print_out(out)
         return
 
-    print("KB Q&A  |  仅知识库检索 + LLM（尚未上单 Agent）")
+    print("KB Q&A  |  仅知识库检索 + LLM")
     print("示例: 比亚迪刀片电池的核心卖点是什么？")
     print("退出: exit / quit / q\n")
     while True:
