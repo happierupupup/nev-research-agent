@@ -168,6 +168,10 @@ def extract_tool_steps(messages: list[Any]) -> list[dict[str, Any]]:
     return steps
 
 
+def summarize_tool_result(tool: str, content: str) -> tuple[str, list[dict[str, str]]]:
+    return _summarize_tool_result(tool, content)
+
+
 def _summarize_tool_result(tool: str, content: str) -> tuple[str, list[dict[str, str]]]:
     sources: list[dict[str, str]] = []
     text = content if isinstance(content, str) else str(content)

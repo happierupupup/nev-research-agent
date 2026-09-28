@@ -46,7 +46,11 @@ def test_m1_followup_query_includes_entities():
 
 
 def test_m2_followup_without_history(monkeypatch):
-    monkeypatch.setattr("agent.runtime.build_graph", lambda: (_ for _ in ()).throw(AssertionError("no graph")))
+    def boom(*_a, **_k):
+        raise AssertionError("no graph")
+
+    monkeypatch.setattr("agent.runtime.build_graph", boom)
+    monkeypatch.setattr("agent.runtime.run_s2", boom)
     out = run_research("它主要用在哪些车上")
     assert out["domain"] == "followup_unclear"
     assert FOLLOWUP_UNCLEAR in out["final_report"]
@@ -74,7 +78,11 @@ def test_m3_interests_persist_across_store(tmp_path):
 
 
 def test_m4_explicit_short_preference(monkeypatch):
-    monkeypatch.setattr("agent.runtime.build_graph", lambda: (_ for _ in ()).throw(AssertionError("no graph")))
+    def boom(*_a, **_k):
+        raise AssertionError("no graph")
+
+    monkeypatch.setattr("agent.runtime.build_graph", boom)
+    monkeypatch.setattr("agent.runtime.run_s2", boom)
     session = SessionMemory()
     out = run_research("以后短答", session=session)
     assert out["domain"] == "preference"
@@ -107,6 +115,7 @@ def test_digest_strips_numbers():
 
 
 def test_m1_forced_search_uses_resolved_query(monkeypatch):
+    monkeypatch.setenv("AGENT_MODE", "s1")
     captured: dict[str, str] = {}
 
     class FakeKb:
@@ -128,6 +137,8 @@ def test_m1_forced_search_uses_resolved_query(monkeypatch):
 
 
 def test_eval_default_has_no_memory_injection(monkeypatch):
+    monkeypatch.setenv("AGENT_MODE", "s1")
+
     class FakeKb:
         def invoke(self, _args):
             return json.dumps({"hits": []})

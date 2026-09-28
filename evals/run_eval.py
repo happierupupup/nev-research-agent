@@ -155,6 +155,9 @@ def run_suite(
                 "hard_gates": gate_result,
                 "dimension_scores": dimension_scores,
                 "rubric_total": None,
+                "agent_mode": run.get("agent_mode"),
+                "iteration_count": run.get("iteration_count"),
+                "verification_issues": run.get("verification_issues"),
                 "report_preview": report[:400],
                 "report": report,
             }
@@ -171,7 +174,7 @@ def run_suite(
         },
         method=method,
         notes=notes,
-        code=["agent/runtime.py", "agent/graph.py", "agent/prompts.py"],
+        code=["agent/runtime.py", "agent/s2_graph.py", "agent/agents", "agent/graph.py"],
         compare_to=compare_tag,
     )
 

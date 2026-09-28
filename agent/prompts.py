@@ -1,4 +1,4 @@
-"""S1 single-agent system prompt."""
+"""S1 single-agent system prompt（AGENT_MODE=s1）。S2 各角色见 agent/agents/*/prompts.py。"""
 
 SYSTEM_PROMPT = """你是新能源汽车行业研究助手（单 Agent）。
 

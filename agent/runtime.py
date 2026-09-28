@@ -2,6 +2,7 @@
 Runtime entry used by main.py and evals/run_eval.py.
 
 S1: single LangGraph ReAct agent (kb_search + web_search).
+S2: Supervisor → Research → Analyst → Verifier（默认；AGENT_MODE=s1 回退）.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from agent.graph import (
     payload_messages,
     progress_events_from_message,
 )
+from agent.s2_graph import run_s2
+from agent.tokens import collect_token_usage, flatten_callback_usage, prefer_usage as _prefer
 from agent.intent import (
     OUT_OF_SCOPE,
     focus_web_query,
@@ -41,13 +44,18 @@ from agent.memory import (
     looks_like_followup,
     resolve_followup_query,
 )
-from agent.tokens import collect_token_usage, flatten_callback_usage, prefer_usage
 from agent.tools.budget import reset_web_budget, web_used
 from agent.tools.kb_tools import kb_search
 from agent.tools.web_tools import web_search
 from evals.metrics import pad_inline_citations
 
+prefer_usage = _prefer
+
 _DEFAULT_RECURSION = 25
+
+
+def _agent_mode() -> str:
+    return (os.getenv("AGENT_MODE") or "s2").strip().lower()
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 
@@ -185,8 +193,90 @@ def run_research(
     kb_q = sanitize_search_query(search_seed)
     web_q = focus_web_query(search_seed)
     memory_block = format_memory_block(session, user_memory, q)
-    user_text = _compose_user_message(q, memory_block)
 
+    if _agent_mode() != "s1":
+        out = _run_s2(
+            q,
+            kb_q=kb_q,
+            memory_block=memory_block,
+            on_event=on_event,
+        )
+        if session is not None:
+            session.remember_from_result(q, out)
+        return out
+
+    return _run_s1(
+        q,
+        report=report,
+        kb_q=kb_q,
+        web_q=web_q,
+        memory_block=memory_block,
+        recursion_limit=recursion_limit,
+        on_event=on_event,
+        session=session,
+    )
+
+
+def _run_s2(
+    q: str,
+    *,
+    kb_q: str,
+    memory_block: str,
+    on_event: ProgressCallback | None,
+) -> dict[str, Any]:
+    final = run_s2(
+        q,
+        search_query=kb_q,
+        memory_block=memory_block,
+        on_event=on_event,
+    )
+    steps = list(final.get("tool_steps") or [])
+    sources = list(final.get("sources") or [])
+    usage = collect_token_usage(final.get("usage_messages") or [])
+    kb_calls = int(final.get("kb_calls") or 0)
+    web_calls = int(final.get("web_calls") or web_used())
+    trace = {
+        "tool_calls": [s.get("tool") for s in steps if s.get("tool")],
+        "kb_calls": kb_calls,
+        "web_calls": sum(1 for s in steps if s.get("tool") == "web_search"),
+        "retrieval_rounds": len(steps),
+    }
+    return {
+        "final_report": final.get("final_report") or "",
+        "retrieval_rounds": trace["retrieval_rounds"],
+        "iteration_count": int(final.get("iteration_count") or 1),
+        "tool_trace": trace,
+        "tool_steps": steps,
+        "sources": sources,
+        "kb_calls": kb_calls,
+        "web_calls": web_calls,
+        "web_attempts": trace["web_calls"],
+        "prompt_tokens": usage["prompt_tokens"],
+        "completion_tokens": usage["completion_tokens"],
+        "total_tokens": usage["total_tokens"],
+        "llm_calls": usage["llm_calls"],
+        "domain": "nev",
+        "search_query": kb_q,
+        "memory_injected": bool(memory_block),
+        "agent_mode": "s2",
+        "research_plan": final.get("research_plan"),
+        "verification_issues": final.get("verification_issues") or [],
+        "current_phase": final.get("current_phase"),
+    }
+
+
+def _run_s1(
+    q: str,
+    *,
+    report: bool,
+    kb_q: str,
+    web_q: str,
+    memory_block: str,
+    recursion_limit: int | None,
+    on_event: ProgressCallback | None,
+    session: SessionMemory | None,
+) -> dict[str, Any]:
+    user_text = _compose_user_message(q, memory_block)
     limit = recursion_limit or int(os.getenv("AGENT_RECURSION_LIMIT", _DEFAULT_RECURSION))
     graph = build_graph()
     usage_cb = UsageMetadataCallbackHandler()
@@ -288,6 +378,7 @@ def run_research(
         "domain": "nev",
         "search_query": kb_q,
         "memory_injected": bool(memory_block),
+        "agent_mode": "s1",
     }
     if session is not None:
         session.remember_from_result(q, out)

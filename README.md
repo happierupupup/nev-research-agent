@@ -2,13 +2,14 @@
 
 新能源汽车行业研究分析 Agent：本地知识库 + 联网检索，输出带引用的短答或分析文档。
 
-路径：KB → **S1 单 Agent（当前）** → **S1.5 记忆（已接）** → 拆四智能体 → 缓存 / GraphRAG。
+路径：KB → S1 单 Agent → S1.5 记忆 → **S2 四智能体（当前默认）** → 缓存 / GraphRAG。
 
 只回答整车 / 电池 / 供应链 / 政策 / 竞品。非新能源直接拒答（不调模型）。「你会做什么」走固定介绍。
 
-## 当前：S1 + 记忆
+## 当前：S2 + 记忆
 
-- LangGraph ReAct：`kb_search` + `web_search`（Tavily → DuckDuckGo → Bing HTML）
+- LangGraph：**Supervisor → Research → Analyst → Verifier**（代码在 `agent/agents/{角色}/`，各有独立 prompts + 逻辑；`AGENT_MODE=s2`）；`AGENT_MODE=s1` 回退单 Agent ReAct
+- Research：`kb_search` + 按需 `web_search`（Tavily → DuckDuckGo → Bing HTML），只产素材
 - KB：`data/kb/` 13 篇摘要 → `data/kb_index/` JSON 余弦索引（不是 Chroma）
 - REPL 短期记忆（近窗回合 + 溢出摘要）+ 按用户长期画像；黄金集默认关记忆
 - 引用必须来自本轮工具，记忆不当 `(来源: …)`
