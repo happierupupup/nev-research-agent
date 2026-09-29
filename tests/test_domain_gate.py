@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from agent.intent import OUT_OF_SCOPE
+from agent.core.intent import OUT_OF_SCOPE
 from agent.runtime import run_research
 
 
 def test_out_of_scope_skips_graph(monkeypatch):
     def boom(*_a, **_k):
-        raise AssertionError("out-of-scope must not build_graph")
+        raise AssertionError("out-of-scope must not build graph / s2")
 
     monkeypatch.setattr("agent.runtime.build_graph", boom)
+    monkeypatch.setattr("agent.runtime.run_s2", boom)
     out = run_research("今天上海天气怎么样？")
     assert out["domain"] == "out_of_scope"
     assert out["kb_calls"] == 0
@@ -22,9 +23,10 @@ def test_out_of_scope_skips_graph(monkeypatch):
 
 def test_capability_returns_intro(monkeypatch):
     def boom(*_a, **_k):
-        raise AssertionError("capability must not build_graph")
+        raise AssertionError("capability must not build graph / s2")
 
     monkeypatch.setattr("agent.runtime.build_graph", boom)
+    monkeypatch.setattr("agent.runtime.run_s2", boom)
     out = run_research("你会做什么")
     assert out["domain"] == "capability"
     assert out["total_tokens"] == 0

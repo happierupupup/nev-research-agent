@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.intent import focus_web_query, is_nev_query, is_report_query, sanitize_search_query
+from agent.core.intent import focus_web_query, is_nev_query, is_report_query, sanitize_search_query
 
 
 def test_is_report_query():

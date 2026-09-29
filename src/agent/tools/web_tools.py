@@ -150,7 +150,7 @@ def _search_public_web(query: str, n: int) -> list[dict]:
 
 def run_web_search(query: str, n: int) -> tuple[list[dict], dict]:
     """One logical search: walk providers until quality is good enough, then stop."""
-    from agent.intent import focus_web_query
+    from agent.core.intent import focus_web_query
     from agent.tools.resilience import Strategy, alt_web_query, execute_strategies
 
     query = focus_web_query(query)

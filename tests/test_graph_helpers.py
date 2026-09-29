@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from agent.graph import (
+from agent.s1.graph import (
     collect_sources,
     extract_tool_steps,
     extract_tool_trace,

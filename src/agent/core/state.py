@@ -1,8 +1,8 @@
 """
 LangGraph state — partitioned workspaces (do not flatten into one bag).
 
-Phase 1 may only fill query / research_workspace / final_report;
-Phase 4 fills plan / analysis / verification / iteration.
+S1 may only fill query / final_report via ReAct messages;
+S2 fills plan / research_workspace / analysis / verification / iteration.
 """
 
 from __future__ import annotations

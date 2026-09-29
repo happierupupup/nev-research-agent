@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.intro import INTRO, is_capability_query
+from agent.core.intro import INTRO, is_capability_query
 
 
 def test_intro_explains_capabilities():

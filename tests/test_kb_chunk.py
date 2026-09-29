@@ -45,7 +45,9 @@ def test_qrels_sources_exist():
     root = Path(__file__).resolve().parents[1]
     kb_dir = root / "data" / "kb"
     docs = {p.name for p in kb_dir.glob("*.md") if p.name.lower() != "readme.md"}
-    qrels = yaml.safe_load((root / "evals" / "retrieval" / "qrels.yaml").read_text(encoding="utf-8"))
+    qrels = yaml.safe_load(
+        (root / "evals" / "datasets" / "retrieval" / "qrels.yaml").read_text(encoding="utf-8")
+    )
     missing: list[str] = []
     for item in qrels["queries"]:
         for src in item["relevant"]:

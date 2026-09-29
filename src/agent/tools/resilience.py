@@ -96,7 +96,7 @@ def filter_web_hits(
     hits: list[dict[str, Any]] | None, query: str
 ) -> list[dict[str, Any]]:
     """Drop calendar-year / movie / encyclopedia rows when the query is NEV."""
-    from agent.intent import is_nev_query
+    from agent.core.intent import is_nev_query
 
     rows = list(hits or [])
     if not rows or not is_nev_query(query):

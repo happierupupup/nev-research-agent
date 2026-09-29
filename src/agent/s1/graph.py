@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from agent.llm import get_llm
-from agent.prompts import SYSTEM_PROMPT
+from agent.s1.prompts import SYSTEM_PROMPT
 from agent.tools import ALL_TOOLS
 
 
@@ -166,6 +166,10 @@ def extract_tool_steps(messages: list[Any]) -> list[dict[str, Any]]:
         step["sources"] = sources
 
     return steps
+
+
+def summarize_tool_result(tool: str, content: str) -> tuple[str, list[dict[str, str]]]:
+    return _summarize_tool_result(tool, content)
 
 
 def _summarize_tool_result(tool: str, content: str) -> tuple[str, list[dict[str, str]]]:

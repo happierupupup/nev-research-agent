@@ -2,43 +2,59 @@
 
 新能源汽车行业研究分析 Agent：本地知识库 + 联网检索，输出带引用的短答或分析文档。
 
-路径：KB → **S1 单 Agent（当前）** → **S1.5 记忆（已接）** → 拆四智能体 → 缓存 / GraphRAG。
+路径：KB → S1 → S1.5 记忆 → **S2 四智能体（当前默认）** → 缓存 / GraphRAG。
 
-只回答整车 / 电池 / 供应链 / 政策 / 竞品。非新能源直接拒答（不调模型）。「你会做什么」走固定介绍。
+只回答整车 / 电池 / 供应链 / 政策 / 竞品。非新能源直接拒答。「你会做什么」走固定介绍。
 
-## 当前：S1 + 记忆
+## 仓库地图
 
-- LangGraph ReAct：`kb_search` + `web_search`（Tavily → DuckDuckGo → Bing HTML）
-- KB：`data/kb/` 13 篇摘要 → `data/kb_index/` JSON 余弦索引（不是 Chroma）
-- REPL 短期记忆（近窗回合 + 溢出摘要）+ 按用户长期画像；黄金集默认关记忆
-- 引用必须来自本轮工具，记忆不当 `(来源: …)`
+| 路径 | 做什么 |
+|------|--------|
+| `main.py` | CLI 入口（薄封装 → `src/agent/cli.py`） |
+| `src/agent/` | 研究 Agent：runtime、core、memory、tools、s1、s2 |
+| `src/kb/` | 本地语料入库 / 余弦检索 |
+| `evals/` | 评测：`datasets/` 金标、`runners/` 脚本、`baselines/` 快照 |
+| `scripts/` | 运维：`ingest_kb` / `ask_kb` |
+| `tests/` | 单测 |
+| `docs/` | 说明（本机留存，gitignore） |
+| `data/` | 语料与索引、用户记忆（gitignore） |
+
+## 安装
 
 ```bash
 cd nev-research-agent
-python3 -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+# Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env          # OPENAI_API_KEY 或 DASHSCOPE；可选 TAVILY_API_KEY
+pip install -e .                 # 把 src/agent、src/kb 装进环境
+cp .env.example .env             # 填 OPENAI/DASHSCOPE；可选 TAVILY_API_KEY
 python scripts/ingest_kb.py
-python main.py                # REPL：思考过程 → 回答 → 信息来源；退出时写长期记忆
+python main.py
 ```
 
+未 `pip install -e .` 时，`main.py` / `evals/run_*.py` / `scripts/*` 会自动把 `src/` 加进 `sys.path`。
+
+## 当前：S2 + 记忆
+
+- 默认 `AGENT_MODE=s2`：`src/agent/s2/{supervisor,research,analyst,verifier}/`
+- 回退：`AGENT_MODE=s1` → `src/agent/s1/`
+- KB：`data/kb/` → `data/kb_index/`；联网 Tavily → DDG → Bing
+- 黄金集关记忆；引用必须来自本轮工具
+
 ```bash
-python main.py "比亚迪刀片电池的核心卖点是什么？"          # one-shot，默认关记忆
-python main.py --memory --user alice "分析比亚迪海外扩张"  # one-shot 也读写该用户画像
-python scripts/ask_kb.py "比亚迪刀片电池的核心卖点是什么？"  # 仅 KB，不走 Agent
+python main.py "比亚迪刀片电池的核心卖点是什么？"
+python main.py --memory --user alice "分析比亚迪海外扩张"
+python scripts/ask_kb.py "比亚迪刀片电池的核心卖点是什么？"
 ```
 
 ## 评测
 
-黄金集 live 必须 `--method`。每次写入 `{tag}_{UTC}.json` 快照 + `{tag}.json` 最新别名。
-
 ```bash
 pytest -q
 python evals/run_retrieval.py --tag kb_expand --method "本地余弦检索 13 篇 KB"
-python evals/run_eval.py --suite golden --tag s1_tokens --ids Q1,Q2,G1 \
-  --method "S1 ReAct kb+web；关记忆；token 基线" --compare s1_baseline
+python evals/run_eval.py --suite golden --tag after_s2 --ids Q1,Q2,G1 \
+  --method "S2 四节点" --compare after_tavily
 python evals/run_memory_eval.py --tag after_memory
 ```
 
-
-
+实现位于 `evals/runners/`；根下 `evals/run_*.py` 为兼容入口。

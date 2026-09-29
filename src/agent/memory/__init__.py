@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent.intent import is_report_query
+from agent.core.intent import is_report_query
 from agent.paths import MEMORY_DIR
 
 WINDOW_SIZE = 3

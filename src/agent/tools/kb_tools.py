@@ -14,7 +14,7 @@ def kb_search(query: str, top_k: int = 4) -> str:
     Query with topic keywords (company, year, market), not verbs like 分析/梳理.
     Use for facts already in the corpus. Returns JSON hits with source, title, score, text.
     """
-    from agent.intent import sanitize_search_query
+    from agent.core.intent import sanitize_search_query
     from agent.tools.resilience import run_kb_search
     from kb import KnowledgeBase
 
