@@ -1,4 +1,4 @@
-"""Verifier node: heuristic gates + LLM Issue JSON."""
+"""Verifier node: heuristic gates + (report only) LLM Issue JSON."""
 
 from __future__ import annotations
 
@@ -68,29 +68,35 @@ def run_node(state: dict[str, Any]) -> dict[str, Any]:
 
     emit(on_event, {"kind": "tool_call", "step": "verifier", "tool": "verify", "query": "issue list"})
     issues = heuristic_verify(report, report_mode=report_mode, workspace=workspace)
-    try:
-        llm = get_llm(temperature=0)
-        human = (
-            f"## 命题\n{state['query']}\n\n## 报告\n{report[:6000]}\n\n"
-            f"## 素材索引\n{format_workspace(workspace)[:4000]}\n"
-        )
-        msg = llm.invoke([SystemMessage(content=SYSTEM), HumanMessage(content=human)])
-        usage_msgs.append(msg)
-        llm_issues = parse_issues(str(getattr(msg, "content", "") or ""))
-        seen = {i.get("message") for i in issues}
-        for i in llm_issues:
-            if i.get("message") not in seen:
-                issues.append(i)
-                seen.add(i.get("message"))
-    except Exception:  # noqa: BLE001
-        pass
+
+    # 短问答：仅启发式门闩，跳过 Verifier LLM（省 1 次调用 + 报告/素材回灌）
+    if report_mode:
+        try:
+            llm = get_llm(temperature=0)
+            human = (
+                f"## 命题\n{state['query']}\n\n## 报告\n{report[:6000]}\n\n"
+                f"## 素材索引\n{format_workspace(workspace)[:4000]}\n"
+            )
+            msg = llm.invoke([SystemMessage(content=SYSTEM), HumanMessage(content=human)])
+            usage_msgs.append(msg)
+            llm_issues = parse_issues(str(getattr(msg, "content", "") or ""))
+            seen = {i.get("message") for i in issues}
+            for i in llm_issues:
+                if i.get("message") not in seen:
+                    issues.append(i)
+                    seen.add(i.get("message"))
+        except Exception:  # noqa: BLE001
+            pass
 
     emit(
         on_event,
         {
             "kind": "tool_result",
             "tool": "verify",
-            "preview": f"issues={len(issues)} critical={len(critical_issues(issues))}",
+            "preview": (
+                f"issues={len(issues)} critical={len(critical_issues(issues))} "
+                f"mode={'report+llm' if report_mode else 'qa+heuristic'}"
+            ),
         },
     )
     return {

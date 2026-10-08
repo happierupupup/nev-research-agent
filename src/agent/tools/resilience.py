@@ -127,7 +127,7 @@ def score_web_hits(hits: list[dict[str, Any]] | None) -> float:
     unique = len({h for h in hosts if h}) / n
     avg_snip = sum(len(str(h.get("snippet") or "")) for h in rows) / n
     junk = thin = 0
-    for h, host in zip(rows, hosts, strict=True):
+    for h, host in zip(rows, hosts):  # py3.9: no zip(strict=)
         blob = f"{host} {h.get('title') or ''} {h.get('url') or ''}".lower()
         if any(j in blob for j in _JUNK_HINTS):
             junk += 1

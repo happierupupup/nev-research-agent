@@ -16,5 +16,6 @@ notes/
 data/kb_index/
 plan.md
 docs/
+agent/
 evals/baselines/
 data/

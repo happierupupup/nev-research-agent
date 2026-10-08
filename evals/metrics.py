@@ -203,6 +203,7 @@ def compare_runs(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str,
                 "id": qid,
                 "kb_calls": {"baseline": b.get("kb_calls"), "current": c.get("kb_calls")},
                 "web_calls": {"baseline": b.get("web_calls"), "current": c.get("web_calls")},
+                "cache_hits": {"baseline": b.get("cache_hits"), "current": c.get("cache_hits")},
                 "cited_facts": {"baseline": b.get("cited_facts"), "current": c.get("cited_facts")},
                 "wall_seconds": {"baseline": b.get("wall_seconds"), "current": c.get("wall_seconds")},
                 "prompt_tokens": {

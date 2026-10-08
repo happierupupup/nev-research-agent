@@ -88,12 +88,22 @@ def iter_doc_files(docs_dir: Path | None = None) -> list[Path]:
     ]
 
 
+def _strip_frontmatter(text: str) -> str:
+    """Drop YAML frontmatter (crawl metadata) so it is not embedded as content."""
+    if not text.startswith("---"):
+        return text
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return text
+    return parts[2].lstrip("\n")
+
+
 def build_chunks(docs_dir: Path | None = None) -> list[Chunk]:
     out: list[Chunk] = []
     base = docs_dir or KB_DOCS
     for path in iter_doc_files(docs_dir):
         rel = str(path.relative_to(base))
-        text = path.read_text(encoding="utf-8")
+        text = _strip_frontmatter(path.read_text(encoding="utf-8"))
         out.extend(_split_markdown(text, source=rel))
     return out
 

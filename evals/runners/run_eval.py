@@ -84,6 +84,7 @@ def _run_one(query: str, *, dry_run: bool) -> dict[str, Any]:
         "iteration_count": meta.get("iteration_count"),
         "kb_calls": meta.get("kb_calls"),
         "web_calls": meta.get("web_calls"),
+        "cache_hits": meta.get("cache_hits"),
         "tool_trace": meta.get("tool_trace"),
         "prompt_tokens": meta.get("prompt_tokens"),
         "completion_tokens": meta.get("completion_tokens"),
@@ -134,6 +135,7 @@ def run_suite(
         print(
             f"  [{status}] {item['id']}: chars={chars} cites={cited} "
             f"wall={run['wall_seconds']}s kb={run.get('kb_calls')} web={run.get('web_calls')} "
+            f"cache={run.get('cache_hits')} "
             f"tok={run.get('total_tokens')} (p={run.get('prompt_tokens')}/c={run.get('completion_tokens')}"
             f"/calls={run.get('llm_calls')}) failures={gate_result['failures']}",
             flush=True,
@@ -148,6 +150,7 @@ def run_suite(
                 "retrieval_rounds": run.get("retrieval_rounds"),
                 "kb_calls": run.get("kb_calls"),
                 "web_calls": run.get("web_calls"),
+                "cache_hits": run.get("cache_hits"),
                 "prompt_tokens": run.get("prompt_tokens"),
                 "completion_tokens": run.get("completion_tokens"),
                 "total_tokens": run.get("total_tokens"),

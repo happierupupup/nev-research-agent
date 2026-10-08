@@ -18,7 +18,6 @@ from agent.tools.web_tools import web_search
 def run_node(state: dict[str, Any]) -> dict[str, Any]:
     plan: ResearchPlan = state.get("research_plan") or fallback_plan(state["query"])
     on_event: ProgressCallback | None = state.get("_on_event")
-    report_mode = bool(state.get("report_mode"))
     need_web = bool(plan.get("need_web"))
     subs = list(plan.get("subqueries") or [sanitize_search_query(state["query"])])
 
@@ -44,7 +43,8 @@ def run_node(state: dict[str, Any]) -> dict[str, Any]:
     )
     emit(on_event, {"kind": "tool_result", "tool": "kb_search", "preview": preview, "sources": sources})
 
-    if need_web or report_mode:
+    # 仅当 plan.need_web；短问答由 Supervisor 强制 need_web=false，禁止靠 report_mode 旁路联网
+    if need_web:
         web_q = focus_web_query(subs[1] if len(subs) > 1 else subs[0])
         emit(on_event, {"kind": "tool_call", "step": "research", "tool": "web_search", "query": web_q})
         raw_web = web_search.invoke({"query": web_q})

@@ -77,19 +77,32 @@ def plan_node(state: dict[str, Any]) -> dict[str, Any]:
     on_event: ProgressCallback | None = state.get("_on_event")
     emit(on_event, {"kind": "tool_call", "step": "supervisor", "tool": "plan", "query": query})
     usage_msgs: list[Any] = list(state.get("usage_messages") or [])
-    plan = fallback_plan(query)
-    try:
-        llm = get_llm(temperature=0)
-        msg = llm.invoke(
-            [SystemMessage(content=SYSTEM), HumanMessage(content=f"用户命题：{query}")]
-        )
-        usage_msgs.append(msg)
-        plan = parse_plan(str(getattr(msg, "content", "") or ""), query)
-    except Exception:  # noqa: BLE001
+    # 短问答：启发式计划即可，省掉 Supervisor LLM（约 1 次调用）
+    if not is_report_query(query):
         plan = fallback_plan(query)
+    else:
+        plan = fallback_plan(query)
+        try:
+            llm = get_llm(temperature=0)
+            msg = llm.invoke(
+                [SystemMessage(content=SYSTEM), HumanMessage(content=f"用户命题：{query}")]
+            )
+            usage_msgs.append(msg)
+            plan = parse_plan(str(getattr(msg, "content", "") or ""), query)
+        except Exception:  # noqa: BLE001
+            plan = fallback_plan(query)
+
+    # 短问答铁律再钉死一次（即使 LLM 误判）
+    if plan.get("mode") != "report":
+        plan = {
+            **plan,
+            "mode": "qa",
+            "need_web": False,
+            "subqueries": (plan.get("subqueries") or [sanitize_search_query(query)])[:1],
+        }
 
     report_mode = plan.get("mode") == "report"
-    reset_web_budget(3 if report_mode else 1)
+    reset_web_budget(3 if report_mode else 0)
     emit(
         on_event,
         {
