@@ -1,16 +1,23 @@
-"""Minimal local knowledge base: chunk → embed → search → LLM answer."""
+"""本地知识库：分块 v2 → 向量索引 → 检索（命中可扩展邻块）。"""
 
 from __future__ import annotations
 
 import json
 import math
 import os
-import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
 from agent.paths import KB_DOCS, KB_INDEX
+from kb.chunking import (
+    DEFAULT_MAX_CHARS,
+    DEFAULT_OVERLAP_CHARS,
+    Chunk,
+    parse_doc_file,
+    split_markdown_v2,
+    _split_markdown,  # noqa: F401  — 测试兼容
+)
 
 META_NAME = "meta.json"
 CHUNKS_NAME = "chunks.jsonl"
@@ -18,59 +25,9 @@ VECTORS_NAME = "vectors.json"
 
 
 @dataclass
-class Chunk:
-    id: str
-    text: str
-    source: str
-    title: str
-
-
-@dataclass
 class Hit:
     chunk: Chunk
     score: float
-
-
-def _split_markdown(text: str, source: str, max_chars: int = 600) -> list[Chunk]:
-    """Split on ## headings; further split long blocks by paragraphs."""
-    text = text.strip()
-    if not text:
-        return []
-    parts = re.split(r"(?m)^##\s+", text)
-    chunks: list[Chunk] = []
-    title = Path(source).stem
-    first = parts[0].strip()
-    blocks: list[tuple[str, str]] = []
-    if first:
-        h1 = re.search(r"(?m)^#\s+(.+)$", first)
-        if h1:
-            title = h1.group(1).strip()
-        blocks.append((title, first))
-    for part in parts[1:]:
-        lines = part.splitlines()
-        heading = lines[0].strip() if lines else title
-        body = "\n".join(lines[1:]).strip() if len(lines) > 1 else ""
-        blocks.append((heading, f"## {heading}\n{body}".strip()))
-
-    n = 0
-    for heading, block in blocks:
-        if len(block) <= max_chars:
-            chunks.append(Chunk(id=f"{source}::{n}", text=block, source=source, title=heading))
-            n += 1
-            continue
-        paras = [p.strip() for p in re.split(r"\n\s*\n", block) if p.strip()]
-        buf = ""
-        for p in paras:
-            if buf and len(buf) + len(p) + 2 > max_chars:
-                chunks.append(Chunk(id=f"{source}::{n}", text=buf, source=source, title=heading))
-                n += 1
-                buf = p
-            else:
-                buf = f"{buf}\n\n{p}".strip() if buf else p
-        if buf:
-            chunks.append(Chunk(id=f"{source}::{n}", text=buf, source=source, title=heading))
-            n += 1
-    return chunks
 
 
 def iter_doc_files(docs_dir: Path | None = None) -> list[Path]:
@@ -89,7 +46,6 @@ def iter_doc_files(docs_dir: Path | None = None) -> list[Path]:
 
 
 def _strip_frontmatter(text: str) -> str:
-    """Drop YAML frontmatter (crawl metadata) so it is not embedded as content."""
     if not text.startswith("---"):
         return text
     parts = text.split("---", 2)
@@ -98,13 +54,27 @@ def _strip_frontmatter(text: str) -> str:
     return parts[2].lstrip("\n")
 
 
-def build_chunks(docs_dir: Path | None = None) -> list[Chunk]:
+def build_chunks(
+    docs_dir: Path | None = None,
+    *,
+    max_chars: int = DEFAULT_MAX_CHARS,
+    overlap_chars: int = DEFAULT_OVERLAP_CHARS,
+) -> list[Chunk]:
     out: list[Chunk] = []
     base = docs_dir or KB_DOCS
     for path in iter_doc_files(docs_dir):
-        rel = str(path.relative_to(base))
-        text = _strip_frontmatter(path.read_text(encoding="utf-8"))
-        out.extend(_split_markdown(text, source=rel))
+        doc_meta, body = parse_doc_file(path, base=base)
+        out.extend(
+            split_markdown_v2(
+                body,
+                source=doc_meta.source,
+                url=doc_meta.url,
+                crawled_at=doc_meta.crawled_at,
+                title_hint=doc_meta.title_hint,
+                max_chars=max_chars,
+                overlap_chars=overlap_chars,
+            )
+        )
     return out
 
 
@@ -115,26 +85,93 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
+def expand_adjacent_hits(
+    hits: list[Hit],
+    chunks_by_id: dict[str, Chunk],
+    *,
+    radius: int = 1,
+) -> list[Hit]:
+    """
+    搜到一块后，用 prev_id / next_id 把前后邻块一起带回。
+    例如长文拆成块0、块1（有重叠）——命中块0 时也会带上块1。
+    """
+    if radius <= 0 or not hits:
+        return list(hits)
+
+    seen: set[str] = set()
+    out: list[Hit] = []
+    doc_order: list[str] = []
+
+    for h in hits:
+        primary = h.chunk
+        score = float(h.score)
+        window: list[str] = [primary.id]
+
+        pid = primary.prev_id
+        for _ in range(radius):
+            if not pid or pid not in chunks_by_id:
+                break
+            window.insert(0, pid)
+            pid = chunks_by_id[pid].prev_id
+
+        nid = primary.next_id
+        for _ in range(radius):
+            if not nid or nid not in chunks_by_id:
+                break
+            window.append(nid)
+            nid = chunks_by_id[nid].next_id
+
+        try:
+            center = window.index(primary.id)
+        except ValueError:
+            center = 0
+
+        for j, cid in enumerate(window):
+            if cid in seen:
+                continue
+            c = chunks_by_id.get(cid)
+            if not c:
+                continue
+            seen.add(cid)
+            dist = abs(j - center)
+            sc = score if dist == 0 else score * max(0.9, 0.99 - 0.01 * dist)
+            out.append(Hit(chunk=c, score=sc))
+            d = c.doc_id or c.source
+            if d not in doc_order:
+                doc_order.append(d)
+
+    out.sort(
+        key=lambda h: (
+            doc_order.index(h.chunk.doc_id or h.chunk.source)
+            if (h.chunk.doc_id or h.chunk.source) in doc_order
+            else 999,
+            h.chunk.chunk_index,
+        )
+    )
+    return out
+
+
 def ingest(
     *,
     docs_dir: Path | None = None,
     index_dir: Path | None = None,
     batch_size: int = 10,
+    max_chars: int = DEFAULT_MAX_CHARS,
+    overlap_chars: int = DEFAULT_OVERLAP_CHARS,
 ) -> dict[str, Any]:
-    """Chunk docs, embed, write index under data/kb_index/."""
+    """分块 v2 → 向量化 → 写入 data/kb_index/。"""
     from agent.llm import get_embeddings
 
     docs = docs_dir or KB_DOCS
     out_dir = index_dir or KB_INDEX
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    chunks = build_chunks(docs)
+    chunks = build_chunks(docs, max_chars=max_chars, overlap_chars=overlap_chars)
     if not chunks:
         raise FileNotFoundError(f"No .md/.txt docs under {docs}")
 
     emb = get_embeddings()
     base = (os.getenv("OPENAI_BASE_URL") or "").lower()
-    # DashScope compatible embeddings: batch must be ≤20 (some models ≤10).
     cap = 10 if "dashscope" in base else 32
     batch_size = max(1, min(int(batch_size), cap))
     vectors: list[list[float]] = []
@@ -142,7 +179,7 @@ def ingest(
     n_batches = (len(texts) + batch_size - 1) // batch_size
     print(
         f"Embedding {len(texts)} chunks in {n_batches} batches "
-        f"(batch_size={batch_size})",
+        f"(batch_size={batch_size}, max_chars={max_chars}, overlap={overlap_chars})",
         flush=True,
     )
     for i in range(0, len(texts), batch_size):
@@ -153,7 +190,7 @@ def ingest(
 
     with (out_dir / CHUNKS_NAME).open("w", encoding="utf-8") as f:
         for c in chunks:
-            f.write(json.dumps(asdict(c), ensure_ascii=False) + "\n")
+            f.write(json.dumps(c.to_dict(), ensure_ascii=False) + "\n")
 
     (out_dir / VECTORS_NAME).write_text(json.dumps(vectors), encoding="utf-8")
 
@@ -162,6 +199,12 @@ def ingest(
         "n_chunks": len(chunks),
         "n_docs": len(iter_doc_files(docs)),
         "embedding_model": getattr(emb, "model", None),
+        "chunking": {
+            "version": 2,
+            "max_chars": max_chars,
+            "overlap_chars": overlap_chars,
+            "neighbor_expand": True,
+        },
     }
     (out_dir / META_NAME).write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -174,6 +217,7 @@ class KnowledgeBase:
         self.index_dir = index_dir or KB_INDEX
         self.chunks: list[Chunk] = []
         self.vectors: list[list[float]] = []
+        self.chunks_by_id: dict[str, Chunk] = {}
         self._load()
 
     def _load(self) -> None:
@@ -190,10 +234,26 @@ class KnowledgeBase:
                 if not line:
                     continue
                 d = json.loads(line)
-                self.chunks.append(Chunk(**d))
+                # 兼容旧索引缺字段
+                self.chunks.append(
+                    Chunk(
+                        id=d["id"],
+                        text=d["text"],
+                        source=d["source"],
+                        title=d.get("title") or "",
+                        doc_id=d.get("doc_id") or d["source"],
+                        chunk_index=int(d.get("chunk_index") or 0),
+                        prev_id=d.get("prev_id"),
+                        next_id=d.get("next_id"),
+                        url=d.get("url") or "",
+                        crawled_at=d.get("crawled_at") or "",
+                        overlap_chars=int(d.get("overlap_chars") or 0),
+                    )
+                )
         self.vectors = json.loads(vectors_path.read_text(encoding="utf-8"))
         if len(self.chunks) != len(self.vectors):
             raise ValueError("chunks.jsonl and vectors.json length mismatch; re-ingest")
+        self.chunks_by_id = {c.id: c for c in self.chunks}
 
     def search(
         self,
@@ -202,7 +262,11 @@ class KnowledgeBase:
         *,
         exclude_ids: set[str] | None = None,
         exclude_sources: set[str] | None = None,
+        expand_neighbors: int = 1,
     ) -> list[Hit]:
+        """
+        向量检索 top_k；默认 expand_neighbors=1，把命中块的前后邻块一并返回。
+        """
         from agent.llm import get_embeddings
 
         if not query.strip():
@@ -213,12 +277,15 @@ class KnowledgeBase:
             for c, v in zip(self.chunks, self.vectors)
         ]
         scored.sort(key=lambda h: h.score, reverse=True)
-        return take_hits(
+        primary = take_hits(
             scored,
             top_k=top_k,
             exclude_ids=exclude_ids,
             exclude_sources=exclude_sources,
         )
+        if expand_neighbors <= 0:
+            return primary
+        return expand_adjacent_hits(primary, self.chunks_by_id, radius=expand_neighbors)
 
 
 def take_hits(
@@ -228,7 +295,6 @@ def take_hits(
     exclude_ids: set[str] | None = None,
     exclude_sources: set[str] | None = None,
 ) -> list[Hit]:
-    """Keep top_k after dropping already-seen chunk ids / files."""
     skip_ids = exclude_ids or set()
     skip_src = exclude_sources or set()
     out: list[Hit] = []
@@ -246,15 +312,23 @@ def take_hits(
 def format_context(hits: Iterable[Hit]) -> str:
     blocks: list[str] = []
     for i, h in enumerate(hits, start=1):
-        blocks.append(
-            f"[{i}] source={h.chunk.source} title={h.chunk.title} score={h.score:.3f}\n"
-            f"{h.chunk.text}"
-        )
+        c = h.chunk
+        meta_bits = [f"source={c.source}", f"title={c.title}", f"score={h.score:.3f}"]
+        if c.url:
+            meta_bits.append(f"url={c.url}")
+        if c.crawled_at:
+            meta_bits.append(f"crawled_at={c.crawled_at}")
+        if c.prev_id or c.next_id:
+            meta_bits.append(f"chunk={c.chunk_index}")
+            if c.prev_id:
+                meta_bits.append(f"prev={c.prev_id}")
+            if c.next_id:
+                meta_bits.append(f"next={c.next_id}")
+        blocks.append(f"[{i}] " + " ".join(meta_bits) + f"\n{c.text}")
     return "\n\n".join(blocks)
 
 
 def ask(question: str, *, top_k: int = 4, index_dir: Path | None = None) -> dict[str, Any]:
-    """Retrieve from KB then ask LLM to answer only from context."""
     from agent.llm import get_llm
 
     kb = KnowledgeBase(index_dir=index_dir)
@@ -279,6 +353,10 @@ def ask(question: str, *, top_k: int = 4, index_dir: Path | None = None) -> dict
                 "source": h.chunk.source,
                 "title": h.chunk.title,
                 "score": round(h.score, 4),
+                "url": h.chunk.url,
+                "crawled_at": h.chunk.crawled_at,
+                "prev_id": h.chunk.prev_id,
+                "next_id": h.chunk.next_id,
                 "text": h.chunk.text[:240],
             }
             for h in hits

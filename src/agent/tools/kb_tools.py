@@ -48,6 +48,11 @@ def kb_search(query: str, top_k: int = 4) -> str:
                 "source": h.chunk.source,
                 "title": h.chunk.title,
                 "score": round(h.score, 4),
+                "url": h.chunk.url,
+                "crawled_at": h.chunk.crawled_at,
+                "chunk_index": h.chunk.chunk_index,
+                "prev_id": h.chunk.prev_id,
+                "next_id": h.chunk.next_id,
                 "text": h.chunk.text,
             }
             for h in hits
