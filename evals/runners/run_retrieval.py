@@ -41,6 +41,9 @@ from evals.metrics import (
     write_baseline,
 )
 from kb import KnowledgeBase
+from kb.hybrid import retrieval_mode_from_env
+from kb.rerank import rerank_mode_from_env
+from kb.rewrite import rewrite_mode_from_env, rewrite_query
 
 EVALS = ROOT / "evals"
 BASELINES = EVALS / "baselines"
@@ -100,6 +103,10 @@ def run_suite(
     qrels_path: Path | None = None,
     level: str = "doc",
     expand_neighbors: int | None = None,
+    rewrite: str | None = None,
+    retrieval: str | None = None,
+    rerank: str | None = None,
+    rerank_candidates: int | None = None,
 ) -> Path:
     qrels = qrels_path or QRELS_DEFAULT
     if not qrels.is_absolute():
@@ -126,16 +133,25 @@ def run_suite(
     if missing:
         print(f"WARN: 金标缺失 {len(missing)} 个: {missing[:8]}…", flush=True)
 
+    rewrite_mode = rewrite_mode_from_env(rewrite)
+    retrieval_mode = retrieval_mode_from_env(retrieval)
+    rerank_mode = rerank_mode_from_env(rerank)
     results: list[dict[str, Any]] = []
     t0 = time.perf_counter()
     for item in spec["queries"]:
         relevant = _gold_ids(item, level=level)
         if not relevant:
             raise SystemExit(f"query {item.get('id')} 无金标（level={level}）")
+        raw_q = str(item["query"] or "")
+        rw = rewrite_query(raw_q, mode=rewrite_mode)
+        search_q = rw.rewritten or raw_q
         hits = kb.search(
-            item["query"],
+            search_q,
             top_k=top_k,
             expand_neighbors=int(expand_neighbors),
+            mode=retrieval_mode,
+            rerank=rerank_mode,
+            rerank_candidates=rerank_candidates,
         )
         if level == "chunk":
             ranked = [h.chunk.id for h in hits]
@@ -145,6 +161,8 @@ def run_suite(
         row = {
             "id": item["id"],
             "query": item["query"],
+            "query_rewritten": search_q,
+            "query_rewrite": rw.as_dict(),
             "level": level,
             "relevant": sorted(relevant),
             "retrieved": ranked,
@@ -187,6 +205,10 @@ def run_suite(
             "qrels": qrels_rel,
             "qrels_version": spec.get("version"),
             "k": top_k,
+            "rewrite": rewrite_mode,
+            "retrieval_mode": retrieval_mode,
+            "rerank": rerank_mode,
+            "rerank_candidates": rerank_candidates,
             "n_queries": len(results),
             "wall_seconds": wall,
             "mean_p_at_k": mean_p,
@@ -198,7 +220,15 @@ def run_suite(
         },
         method=method,
         notes=notes,
-        code=["src/kb/__init__.py", "scripts/ingest_kb.py", qrels_rel],
+        code=[
+            "src/kb/__init__.py",
+            "src/kb/rewrite.py",
+            "src/kb/keyword.py",
+            "src/kb/hybrid.py",
+            "src/kb/rerank.py",
+            "scripts/ingest_kb.py",
+            qrels_rel,
+        ],
         compare_to=compare_tag,
     )
 
@@ -208,7 +238,8 @@ def run_suite(
     print(f"Latest alias {BASELINES / f'retrieval_{tag}.json'}")
     print(f"Method: {method}")
     print(
-        f"  level={level} expand_neighbors={expand_neighbors}  "
+        f"  level={level} rewrite={rewrite_mode} retrieval={retrieval_mode} "
+        f"rerank={rerank_mode} expand_neighbors={expand_neighbors}  "
         f"mean P@{top_k}={mean_p}  R@{top_k}={mean_r}  Hit@{top_k}={mean_hit}  "
         f"nDCG@{top_k}={mean_ndcg}  MRR={mean_mrr}  n={len(results)}"
     )
@@ -269,6 +300,31 @@ def main() -> None:
         help="这次测的检索方法",
     )
     p.add_argument("--notes", default="", help="补充说明")
+    p.add_argument(
+        "--rewrite",
+        default=None,
+        choices=["rules", "llm", "off"],
+        help="查询改写：rules（默认，可用环境变量 KB_QUERY_REWRITE）| llm | off",
+    )
+    p.add_argument(
+        "--retrieval",
+        default=None,
+        choices=["vector", "keyword", "hybrid"],
+        help="检索模式：vector（默认）| keyword（BM25）| hybrid（向量+BM25 RRF）；"
+        "也可用环境变量 KB_RETRIEVAL_MODE",
+    )
+    p.add_argument(
+        "--rerank",
+        default=None,
+        choices=["off", "lexical", "gte"],
+        help="重排：off（默认）| lexical（本地）| gte（DashScope）；KB_RERANK",
+    )
+    p.add_argument(
+        "--rerank-candidates",
+        type=int,
+        default=None,
+        help="重排前初检条数（默认 max(k*4, 32)；KB_RERANK_CANDIDATES）",
+    )
     args = p.parse_args()
 
     qrels = args.qrels
@@ -290,6 +346,10 @@ def main() -> None:
             qrels_path=args.qrels,
             level=level,
             expand_neighbors=args.expand_neighbors,
+            rewrite=args.rewrite,
+            retrieval=args.retrieval,
+            rerank=args.rerank,
+            rerank_candidates=args.rerank_candidates,
         )
     except FileNotFoundError as exc:
         print(f"Error: {exc}", file=sys.stderr)

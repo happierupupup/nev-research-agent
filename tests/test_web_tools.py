@@ -41,7 +41,12 @@ def test_ddgs_client_accepts_primp_impersonate():
 
 
 def test_web_search_refunds_budget_on_failure(monkeypatch):
+    from agent.cache.redis_client import set_redis_override
+    from agent.tools.call_registry import reset_call_registry
+
     budget.reset_web_budget(3)
+    reset_call_registry()
+    set_redis_override(None)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.setattr(
         web_tools,
@@ -55,7 +60,12 @@ def test_web_search_refunds_budget_on_failure(monkeypatch):
 
 
 def test_web_search_counts_success(monkeypatch):
+    from agent.cache.redis_client import set_redis_override
+    from agent.tools.call_registry import reset_call_registry
+
     budget.reset_web_budget(3)
+    reset_call_registry()
+    set_redis_override(None)  # force fail-open; ignore live REDIS_URL
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.setattr(
         web_tools,

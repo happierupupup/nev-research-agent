@@ -220,6 +220,14 @@ def ingest(
             milvus_info = {"error": str(exc)}
             print(f"Milvus Lite ingest failed: {exc}", flush=True)
 
+    kb_gen = 0
+    try:
+        from agent.cache.tool_cache import bump_kb_generation
+
+        kb_gen = bump_kb_generation()
+    except Exception:  # noqa: BLE001
+        kb_gen = 0
+
     meta = {
         "docs_dir": str(docs),
         "n_chunks": len(chunks),
@@ -233,6 +241,7 @@ def ingest(
         },
         "kb_backend_default": kb_backend(),
         "milvus": milvus_info,
+        "kb_cache_generation": kb_gen,
     }
     (out_dir / META_NAME).write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -253,12 +262,47 @@ class KnowledgeBase:
         self.vectors: list[list[float]] = []
         self.chunks_by_id: dict[str, Chunk] = {}
         self._milvus = None
+        self._keyword_index = None
         if self.backend == "milvus":
             from kb.milvus_store import MilvusStore, milvus_uri
 
             self._milvus = MilvusStore(uri=milvus_uri())
+            # 混合 / 关键词检索仍依赖本地 chunks.jsonl（与向量同一次 ingest）
+            self._load_chunks_only(required=False)
         else:
             self._load_json()
+
+    def _parse_chunk_row(self, d: dict[str, Any]) -> Chunk:
+        return Chunk(
+            id=d["id"],
+            text=d["text"],
+            source=d["source"],
+            title=d.get("title") or "",
+            doc_id=d.get("doc_id") or d["source"],
+            chunk_index=int(d.get("chunk_index") or 0),
+            prev_id=d.get("prev_id"),
+            next_id=d.get("next_id"),
+            url=d.get("url") or "",
+            crawled_at=d.get("crawled_at") or "",
+            overlap_chars=int(d.get("overlap_chars") or 0),
+        )
+
+    def _load_chunks_only(self, *, required: bool = True) -> None:
+        chunks_path = self.index_dir / CHUNKS_NAME
+        if not chunks_path.exists():
+            if required:
+                raise FileNotFoundError(
+                    f"KB chunks missing under {self.index_dir}. Run: python scripts/ingest_kb.py"
+                )
+            return
+        self.chunks = []
+        with chunks_path.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                self.chunks.append(self._parse_chunk_row(json.loads(line)))
+        self.chunks_by_id = {c.id: c for c in self.chunks}
 
     def _load_json(self) -> None:
         chunks_path = self.index_dir / CHUNKS_NAME
@@ -267,74 +311,39 @@ class KnowledgeBase:
             raise FileNotFoundError(
                 f"KB index missing under {self.index_dir}. Run: python scripts/ingest_kb.py"
             )
-        self.chunks = []
-        with chunks_path.open(encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                d = json.loads(line)
-                self.chunks.append(
-                    Chunk(
-                        id=d["id"],
-                        text=d["text"],
-                        source=d["source"],
-                        title=d.get("title") or "",
-                        doc_id=d.get("doc_id") or d["source"],
-                        chunk_index=int(d.get("chunk_index") or 0),
-                        prev_id=d.get("prev_id"),
-                        next_id=d.get("next_id"),
-                        url=d.get("url") or "",
-                        crawled_at=d.get("crawled_at") or "",
-                        overlap_chars=int(d.get("overlap_chars") or 0),
-                    )
-                )
+        self._load_chunks_only(required=True)
         self.vectors = json.loads(vectors_path.read_text(encoding="utf-8"))
         if len(self.chunks) != len(self.vectors):
             raise ValueError("chunks.jsonl and vectors.json length mismatch; re-ingest")
-        self.chunks_by_id = {c.id: c for c in self.chunks}
 
-    def search(
+    def _ensure_keyword_index(self):
+        if self._keyword_index is not None:
+            return self._keyword_index
+        if not self.chunks:
+            self._load_chunks_only(required=True)
+        from kb.keyword import KeywordIndex
+
+        self._keyword_index = KeywordIndex(self.chunks)
+        return self._keyword_index
+
+    def _vector_pairs(
         self,
         query: str,
-        top_k: int = 4,
+        top_k: int,
         *,
-        exclude_ids: set[str] | None = None,
-        exclude_sources: set[str] | None = None,
-        expand_neighbors: int = 1,
-    ) -> list[Hit]:
-        """
-        向量检索 top_k；默认 expand_neighbors=1，把命中块的前后邻块一并返回。
-        backend=milvus 时走 Milvus Lite；否则本地 JSON 余弦。
-        """
+        exclude_ids: set[str] | None,
+        exclude_sources: set[str] | None,
+    ) -> list[tuple[Chunk, float]]:
         from agent.llm import get_embeddings
 
-        if not query.strip():
-            return []
         qv = get_embeddings().embed_query(query)
-
         if self._milvus is not None:
-            pairs = self._milvus.search(
+            return self._milvus.search(
                 qv,
                 top_k=top_k,
                 exclude_ids=exclude_ids,
                 exclude_sources=exclude_sources,
             )
-            primary = [Hit(chunk=c, score=s) for c, s in pairs]
-            if expand_neighbors <= 0:
-                return primary
-            # 邻块可能不在 top_k：按 id 再取
-            need: list[str] = []
-            for h in primary:
-                if h.chunk.prev_id:
-                    need.append(h.chunk.prev_id)
-                if h.chunk.next_id:
-                    need.append(h.chunk.next_id)
-            extra = self._milvus.get_by_ids(need)
-            by_id = {h.chunk.id: h.chunk for h in primary}
-            by_id.update(extra)
-            return expand_adjacent_hits(primary, by_id, radius=expand_neighbors)
-
         scored = [
             Hit(chunk=c, score=_cosine(qv, v))
             for c, v in zip(self.chunks, self.vectors)
@@ -346,9 +355,127 @@ class KnowledgeBase:
             exclude_ids=exclude_ids,
             exclude_sources=exclude_sources,
         )
+        return [(h.chunk, h.score) for h in primary]
+
+    def _keyword_pairs(
+        self,
+        query: str,
+        top_k: int,
+        *,
+        exclude_ids: set[str] | None,
+        exclude_sources: set[str] | None,
+    ) -> list[tuple[Chunk, float]]:
+        idx = self._ensure_keyword_index()
+        # 多取再过滤 exclude
+        want = max(top_k * 3, top_k)
+        raw = idx.search(query, top_k=want)
+        skip_ids = exclude_ids or set()
+        skip_src = exclude_sources or set()
+        out: list[tuple[Chunk, float]] = []
+        for c, s in raw:
+            if c.id in skip_ids or c.source in skip_src:
+                continue
+            out.append((c, s))
+            if len(out) >= top_k:
+                break
+        return out
+
+    def _maybe_expand(self, primary: list[Hit], expand_neighbors: int) -> list[Hit]:
         if expand_neighbors <= 0:
             return primary
+        if self._milvus is not None and not self.chunks_by_id:
+            need: list[str] = []
+            for h in primary:
+                if h.chunk.prev_id:
+                    need.append(h.chunk.prev_id)
+                if h.chunk.next_id:
+                    need.append(h.chunk.next_id)
+            extra = self._milvus.get_by_ids(need)
+            by_id = {h.chunk.id: h.chunk for h in primary}
+            by_id.update(extra)
+            return expand_adjacent_hits(primary, by_id, radius=expand_neighbors)
         return expand_adjacent_hits(primary, self.chunks_by_id, radius=expand_neighbors)
+
+    def search(
+        self,
+        query: str,
+        top_k: int = 4,
+        *,
+        exclude_ids: set[str] | None = None,
+        exclude_sources: set[str] | None = None,
+        expand_neighbors: int = 1,
+        mode: str | None = None,
+        rrf_k: int | None = None,
+        candidate_k: int | None = None,
+        rerank: str | None = None,
+        rerank_candidates: int | None = None,
+    ) -> list[Hit]:
+        """
+        检索 top_k；默认 expand_neighbors=1，把命中块的前后邻块一并返回。
+
+        mode（KB_RETRIEVAL_MODE，默认 vector）：
+          vector  — 纯向量（JSON 余弦 / Milvus）
+          keyword — 纯 BM25
+          hybrid  — 向量 + BM25，RRF 融合
+
+        rerank（KB_RERANK，默认 off）：
+          off | lexical | gte — 初检扩召后重排再截 top_k
+        """
+        from kb.hybrid import (
+            candidate_pool,
+            convex_fuse,
+            fusion_method_from_env,
+            hybrid_alpha_from_env,
+            hybrid_weights_from_env,
+            retrieval_mode_from_env,
+            rrf_fuse,
+        )
+        from kb.rerank import apply_rerank, rerank_candidate_count, rerank_mode_from_env
+
+        if not query.strip():
+            return []
+
+        ret_mode = retrieval_mode_from_env(mode)
+        rr_mode = rerank_mode_from_env(rerank)
+        # 重排开启时初检取更多候选；hybrid 自身也有 pool
+        fetch_k = int(top_k)
+        if rr_mode != "off":
+            fetch_k = rerank_candidate_count(top_k, rerank_candidates)
+        hybrid_pool = candidate_pool(fetch_k if rr_mode != "off" else top_k, candidate_k)
+        if rr_mode != "off":
+            hybrid_pool = max(hybrid_pool, fetch_k)
+
+        if ret_mode == "keyword":
+            pairs = self._keyword_pairs(
+                query, fetch_k, exclude_ids=exclude_ids, exclude_sources=exclude_sources
+            )
+        elif ret_mode == "hybrid":
+            vec = self._vector_pairs(
+                query, hybrid_pool, exclude_ids=exclude_ids, exclude_sources=exclude_sources
+            )
+            kw = self._keyword_pairs(
+                query, hybrid_pool, exclude_ids=exclude_ids, exclude_sources=exclude_sources
+            )
+            fusion = fusion_method_from_env()
+            cut = fetch_k if rr_mode != "off" else top_k
+            if fusion == "convex":
+                pairs = convex_fuse(vec, kw, alpha=hybrid_alpha_from_env(), top_k=cut)
+            else:
+                rk = int(rrf_k) if rrf_k is not None else int(os.getenv("KB_RRF_K") or 60)
+                w_vec, w_kw = hybrid_weights_from_env()
+                pairs = rrf_fuse([vec, kw], rrf_k=rk, top_k=cut, weights=(w_vec, w_kw))
+        else:
+            pairs = self._vector_pairs(
+                query, fetch_k, exclude_ids=exclude_ids, exclude_sources=exclude_sources
+            )
+
+        if rr_mode != "off":
+            pairs = apply_rerank(query, pairs, top_k=top_k, mode=rr_mode)
+        else:
+            pairs = list(pairs)[: max(0, top_k)]
+
+        primary = [Hit(chunk=c, score=s) for c, s in pairs]
+        return self._maybe_expand(primary, expand_neighbors)
 
 
 def take_hits(
@@ -393,9 +520,12 @@ def format_context(hits: Iterable[Hit]) -> str:
 
 def ask(question: str, *, top_k: int = 4, index_dir: Path | None = None) -> dict[str, Any]:
     from agent.llm import get_llm
+    from kb.rewrite import rewrite_query
 
+    rw = rewrite_query(question)
+    search_q = rw.rewritten or question
     kb = KnowledgeBase(index_dir=index_dir)
-    hits = kb.search(question, top_k=top_k)
+    hits = kb.search(search_q, top_k=top_k)
     context = format_context(hits)
     llm = get_llm(temperature=0)
     prompt = (
@@ -409,6 +539,8 @@ def ask(question: str, *, top_k: int = 4, index_dir: Path | None = None) -> dict
     answer = resp.content if hasattr(resp, "content") else str(resp)
     return {
         "question": question,
+        "query_used": search_q,
+        "query_rewrite": rw.as_dict(),
         "answer": answer,
         "hits": [
             {

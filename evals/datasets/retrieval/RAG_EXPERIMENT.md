@@ -41,12 +41,34 @@ KB_BACKEND=json python evals/run_retrieval.py \
   --level chunk \
   --compare rag_chunk_baseline_v3 \
   --method "query rewrite: 检索前 LLM 规范化"
+
+# 混合检索（向量 + BM25 RRF）；对照时 rewrite=off 以免叠方案
+KB_BACKEND=json python evals/run_retrieval.py \
+  --tag hybrid_rrf_v3 \
+  --qrels evals/datasets/retrieval/qrels_v3.yaml \
+  --level chunk \
+  --rewrite off \
+  --retrieval hybrid \
+  --compare rag_chunk_baseline_v3 \
+  --method "hybrid: vector + BM25 RRF"
+
+# 重排（初检扩召 → gte / lexical）；对照时其它开关关闭
+KB_BACKEND=json python evals/run_retrieval.py \
+  --tag rerank_gte_v3 \
+  --qrels evals/datasets/retrieval/qrels_v3.yaml \
+  --level chunk \
+  --rewrite off \
+  --retrieval vector \
+  --rerank gte \
+  --compare rag_chunk_baseline_v3 \
+  --method "rerank: vector topN → gte-rerank-v2 → k"
 ```
 
 ## 候选方案（尚未实现则勿写进 method）
 
-| 方案 | 位置 | 预期影响 |
-|------|------|----------|
-| 查询改写 | search 前一次 LLM | 偏召回 / 抗口语 |
-| 混合检索 | 向量 + 关键词 | 专名、年份 |
-| rerank | 初检 topN → 重排取 k | 偏准确率 |
+| 方案 | 位置 | 预期影响 | 状态 |
+|------|------|----------|------|
+| 查询改写（规则） | `src/kb/rewrite.py` → `kb_search` | 抗口语；书面金标上见 R17 | ✅ 已落地；qrels_v3 上 P/R 略降、MRR 持平 |
+| 查询改写（LLM） | 同上 `KB_QUERY_REWRITE=llm` | 规范化 | ⬜ 未在 v3 金标上 live |
+| 混合检索 | `src/kb/keyword.py` + `hybrid.py`；`KB_RETRIEVAL_MODE` | 专名、年份 | ✅ 已落地；等权 RRF 见 R18（P/R↓）；默认 `vector` + 加权 3:1 |
+| rerank | `src/kb/rerank.py`；`KB_RERANK` | 偏准确率 | ✅ 已落地；gte/lexical 见 R19（P/R↓）；默认 off |

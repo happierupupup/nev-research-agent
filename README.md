@@ -106,6 +106,15 @@ python web_app.py
 
 环境变量：`NEV_WEB_HOST`（默认 `127.0.0.1`）、`NEV_WEB_PORT`（默认 `7860`）。
 
+### 工具结果缓存（可选 Redis）
+
+只缓存成功的 `kb_search` / `web_search` JSON；未配 `REDIS_URL` 或 Redis 宕机时失败旁路。同轮内相同工具调用按 `call_id` 去重。详见 [`docs/usage.md`](docs/usage.md)。
+
+```bash
+docker run -d --name nev-redis -p 6379:6379 redis:7-alpine
+# .env: REDIS_URL=redis://127.0.0.1:6379/0
+```
+
 ### 问答（CLI）
 
 ```bash
@@ -124,6 +133,50 @@ python scripts/ask_kb.py "比亚迪刀片电池的核心卖点是什么？"
 ```
 
 `AGENT_MODE=s1` 可切回单 Agent；默认 `s2`。
+
+### RAG 查询改写与混合检索
+
+`kb_search` 入库检索前会改写查询（去口语/任务动词、补实体别名）。默认规则改写：
+
+```bash
+# .env
+KB_QUERY_REWRITE=rules   # 默认
+# KB_QUERY_REWRITE=llm   # 可选：LLM 改写，失败回退 rules
+# KB_QUERY_REWRITE=off
+
+# 检索评测对照
+python evals/run_retrieval.py --tag rewrite_off --rewrite off --method "无改写"
+python evals/run_retrieval.py --tag rewrite_rules --rewrite rules --method "规则改写" --compare rewrite_off
+```
+
+混合检索：向量 + 内存 BM25。默认仍为纯向量（qrels_v3 上等权 RRF 会降 P/R，见 eval-log R18）：
+
+```bash
+# .env
+KB_RETRIEVAL_MODE=vector   # 默认；keyword | hybrid
+# KB_HYBRID_FUSION=rrf     # 或 convex
+# KB_HYBRID_WEIGHTS=3,1    # 向量:关键词（rrf）
+# KB_HYBRID_ALPHA=0.85     # 向量占比（convex）
+# KB_HYBRID_CANDIDATES=24
+# KB_RRF_K=60
+
+python evals/run_retrieval.py --tag hybrid_rrf_w31_v3 --rewrite off --retrieval hybrid \
+  --qrels evals/datasets/retrieval/qrels_v3.yaml --level chunk \
+  --compare rag_chunk_baseline_v3 --method "hybrid: weighted RRF 3:1"
+```
+
+重排：向量初检 topN 后再截 k。默认 off：
+
+```bash
+# .env
+KB_RERANK=off          # lexical | gte（DashScope gte-rerank-v2）
+# KB_RERANK_CANDIDATES=32
+# KB_RERANK_MODEL=gte-rerank-v2
+
+python evals/run_retrieval.py --tag rerank_gte_v3 --rewrite off --retrieval vector \
+  --rerank gte --qrels evals/datasets/retrieval/qrels_v3.yaml --level chunk \
+  --compare rag_chunk_baseline_v3 --method "rerank: gte-rerank-v2"
+```
 
 ### 管理员扩库
 

@@ -185,7 +185,23 @@ def web_search(query: str, max_results: int = 5) -> str:
     retrieved_at. If degraded=true or error, do not repeat the same query;
     use kb_search and write from existing evidence.
     """
+    from agent.cache.tool_cache import cache_get, cache_set, make_call_id
     from agent.tools.budget import allow_web_search, refund_web_search
+    from agent.tools.call_registry import lookup, store
+
+    n = max(1, min(int(max_results), 8))
+    call_id = make_call_id("web_search", query, max_results=n)
+
+    # 1) Same-turn dedup — no budget burn
+    prior = lookup(call_id)
+    if prior is not None:
+        return json.dumps(prior, ensure_ascii=False)
+
+    # 2) Redis cache — no budget burn
+    cached = cache_get("web_search", call_id, query=query)
+    if cached is not None:
+        store(call_id, cached)
+        return json.dumps(cached, ensure_ascii=False)
 
     ok, used, cap = allow_web_search()
     if not ok:
@@ -195,24 +211,37 @@ def web_search(query: str, max_results: int = 5) -> str:
                 "results": [],
                 "degraded": True,
                 "fallback": "kb",
+                "call_id": call_id,
+                "cache_hit": False,
+                "dedup_hit": False,
             },
             ensure_ascii=False,
         )
 
-    n = max(1, min(int(max_results), 8))
     hits, meta = run_web_search(query, n)
     if not hits:
         refund_web_search()
-        return json.dumps(
-            {
-                "error": "web_search failed after quality-gated retries",
-                "results": [],
-                "web_used": used - 1,
-                **meta,
-            },
-            ensure_ascii=False,
-        )
-    return json.dumps(
-        {"results": hits, "web_used": used, "web_max": cap, **meta},
-        ensure_ascii=False,
-    )
+        payload = {
+            "error": "web_search failed after quality-gated retries",
+            "results": [],
+            "web_used": used - 1,
+            "call_id": call_id,
+            "cache_hit": False,
+            "dedup_hit": False,
+            **meta,
+        }
+        store(call_id, payload)
+        return json.dumps(payload, ensure_ascii=False)
+
+    payload = {
+        "results": hits,
+        "web_used": used,
+        "web_max": cap,
+        "call_id": call_id,
+        "cache_hit": False,
+        "dedup_hit": False,
+        **meta,
+    }
+    store(call_id, payload)
+    cache_set("web_search", call_id, payload, query=query)
+    return json.dumps(payload, ensure_ascii=False)

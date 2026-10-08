@@ -9,6 +9,7 @@ pyyaml>=6.0
 httpx>=0.27.0
 python-dotenv>=1.0.0
 pytest>=8.0.0
+redis>=5.0.0
 duckduckgo-search>=6.0.0
 # Web UI：Python 3.9 可用 Gradio 3.x（勿强依赖 Gradio 4/5）
 gradio>=3.50.0,<4

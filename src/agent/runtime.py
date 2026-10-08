@@ -44,7 +44,9 @@ from agent.memory import (
     looks_like_followup,
     resolve_followup_query,
 )
+from agent.cache.tool_cache import cache_hits, reset_cache_stats
 from agent.tools.budget import reset_web_budget, web_used
+from agent.tools.call_registry import dedup_hits, reset_call_registry
 from agent.tools.kb_tools import kb_search
 from agent.tools.web_tools import web_search
 from evals.metrics import pad_inline_citations
@@ -129,6 +131,8 @@ def _short_circuit(text: str, domain: str) -> dict[str, Any]:
         "kb_calls": 0,
         "web_calls": 0,
         "web_attempts": 0,
+        "cache_hits": 0,
+        "dedup_hits": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "total_tokens": 0,
@@ -188,6 +192,8 @@ def run_research(
 
     report = is_report_query(q)
     reset_web_budget(3 if report else 1)
+    reset_call_registry()
+    reset_cache_stats()
 
     search_seed = resolve_followup_query(q, session)
     kb_q = sanitize_search_query(search_seed)
@@ -251,6 +257,8 @@ def _run_s2(
         "kb_calls": kb_calls,
         "web_calls": web_calls,
         "web_attempts": trace["web_calls"],
+        "cache_hits": cache_hits(),
+        "dedup_hits": dedup_hits(),
         "prompt_tokens": usage["prompt_tokens"],
         "completion_tokens": usage["completion_tokens"],
         "total_tokens": usage["total_tokens"],
@@ -371,6 +379,8 @@ def _run_s1(
         "kb_calls": trace["kb_calls"],
         "web_calls": web_used(),
         "web_attempts": trace["web_calls"],
+        "cache_hits": cache_hits(),
+        "dedup_hits": dedup_hits(),
         "prompt_tokens": usage["prompt_tokens"],
         "completion_tokens": usage["completion_tokens"],
         "total_tokens": usage["total_tokens"],
