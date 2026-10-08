@@ -11,3 +11,9 @@ python-dotenv>=1.0.0
 pytest>=8.0.0
 duckduckgo-search>=6.0.0
 # optional: pip install tavily-python  when TAVILY_API_KEY is set
+# Milvus Lite（无 Docker；可选，KB_BACKEND=milvus 时需要）
+# 先装带 wheel 的 grpcio，避免 macOS 源码编译卡住；setuptools<81 保留 pkg_resources（milvus-lite 需要）
+grpcio==1.67.1
+setuptools>=69,<81
+pymilvus==2.5.14
+milvus-lite==2.4.12

@@ -12,7 +12,7 @@
 |------|--------|
 | `main.py` | CLI 入口（薄封装 → `src/agent/cli.py`） |
 | `src/agent/` | 研究 Agent：runtime、core、memory、tools、s1、s2 |
-| `src/kb/` | 本地语料入库 / 余弦检索 |
+| `src/kb/` | 语料入库 / 检索（`KB_BACKEND=json|milvus`） |
 | `evals/` | 评测：`datasets/` 金标、`runners/` 脚本、`baselines/` 快照 |
 | `scripts/` | 运维：`ingest_kb` / `ask_kb` |
 | `tests/` | 单测 |
@@ -30,6 +30,19 @@ pip install -e .                 # 把 src/agent、src/kb 装进环境
 cp .env.example .env             # 填 OPENAI/DASHSCOPE；可选 TAVILY_API_KEY
 python scripts/ingest_kb.py
 python main.py
+```
+
+### 无 Docker：Milvus Lite（可选）
+
+默认仍是本地 JSON 余弦。要切向量库文件（无需起服务）：
+
+```bash
+# 若 pip 卡住：先装 wheel，再装 Lite
+pip install "grpcio==1.67.1" "setuptools>=69,<81" "pymilvus==2.5.14" "milvus-lite==2.4.12"
+python scripts/ingest_kb.py --also-milvus   # 写入 data/milvus/nev.db（JSON 仍会写）
+# .env 加一行：
+# KB_BACKEND=milvus
+python scripts/ask_kb.py "比亚迪刀片电池的核心卖点是什么？"
 ```
 
 未 `pip install -e .` 时，`main.py` / `evals/run_*.py` / `scripts/*` 会自动把 `src/` 加进 `sys.path`。

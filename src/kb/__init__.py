@@ -19,6 +19,12 @@ from kb.chunking import (
     _split_markdown,  # noqa: F401  — 测试兼容
 )
 
+
+def kb_backend() -> str:
+    """json（默认本地余弦）| milvus（Milvus Lite 文件库）。"""
+    return (os.getenv("KB_BACKEND") or "json").strip().lower()
+
+
 META_NAME = "meta.json"
 CHUNKS_NAME = "chunks.jsonl"
 VECTORS_NAME = "vectors.json"
@@ -158,8 +164,9 @@ def ingest(
     batch_size: int = 10,
     max_chars: int = DEFAULT_MAX_CHARS,
     overlap_chars: int = DEFAULT_OVERLAP_CHARS,
+    also_milvus: bool | None = None,
 ) -> dict[str, Any]:
-    """分块 v2 → 向量化 → 写入 data/kb_index/。"""
+    """分块 v2 → 向量化 → 写入 data/kb_index/；可选同步 Milvus Lite。"""
     from agent.llm import get_embeddings
 
     docs = docs_dir or KB_DOCS
@@ -194,6 +201,25 @@ def ingest(
 
     (out_dir / VECTORS_NAME).write_text(json.dumps(vectors), encoding="utf-8")
 
+    # 默认：KB_BACKEND=milvus 或显式 --also-milvus 时写入 Lite
+    if also_milvus is None:
+        also_milvus = kb_backend() == "milvus" or (
+            os.getenv("MILVUS_ALSO_INGEST", "").strip().lower() in {"1", "true", "yes"}
+        )
+
+    milvus_info: dict[str, Any] | None = None
+    if also_milvus:
+        try:
+            from kb.milvus_store import MilvusStore, milvus_uri
+
+            store = MilvusStore(uri=milvus_uri())
+            n = store.replace_all(chunks, vectors)
+            milvus_info = {"uri": store.uri, "collection": store.collection, "n_rows": n}
+            print(f"Milvus Lite upserted {n} rows → {store.uri}", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            milvus_info = {"error": str(exc)}
+            print(f"Milvus Lite ingest failed: {exc}", flush=True)
+
     meta = {
         "docs_dir": str(docs),
         "n_chunks": len(chunks),
@@ -205,6 +231,8 @@ def ingest(
             "overlap_chars": overlap_chars,
             "neighbor_expand": True,
         },
+        "kb_backend_default": kb_backend(),
+        "milvus": milvus_info,
     }
     (out_dir / META_NAME).write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -213,14 +241,26 @@ def ingest(
 
 
 class KnowledgeBase:
-    def __init__(self, index_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        index_dir: Path | None = None,
+        *,
+        backend: str | None = None,
+    ) -> None:
         self.index_dir = index_dir or KB_INDEX
+        self.backend = (backend or kb_backend()).strip().lower()
         self.chunks: list[Chunk] = []
         self.vectors: list[list[float]] = []
         self.chunks_by_id: dict[str, Chunk] = {}
-        self._load()
+        self._milvus = None
+        if self.backend == "milvus":
+            from kb.milvus_store import MilvusStore, milvus_uri
 
-    def _load(self) -> None:
+            self._milvus = MilvusStore(uri=milvus_uri())
+        else:
+            self._load_json()
+
+    def _load_json(self) -> None:
         chunks_path = self.index_dir / CHUNKS_NAME
         vectors_path = self.index_dir / VECTORS_NAME
         if not chunks_path.exists() or not vectors_path.exists():
@@ -234,7 +274,6 @@ class KnowledgeBase:
                 if not line:
                     continue
                 d = json.loads(line)
-                # 兼容旧索引缺字段
                 self.chunks.append(
                     Chunk(
                         id=d["id"],
@@ -266,12 +305,36 @@ class KnowledgeBase:
     ) -> list[Hit]:
         """
         向量检索 top_k；默认 expand_neighbors=1，把命中块的前后邻块一并返回。
+        backend=milvus 时走 Milvus Lite；否则本地 JSON 余弦。
         """
         from agent.llm import get_embeddings
 
         if not query.strip():
             return []
         qv = get_embeddings().embed_query(query)
+
+        if self._milvus is not None:
+            pairs = self._milvus.search(
+                qv,
+                top_k=top_k,
+                exclude_ids=exclude_ids,
+                exclude_sources=exclude_sources,
+            )
+            primary = [Hit(chunk=c, score=s) for c, s in pairs]
+            if expand_neighbors <= 0:
+                return primary
+            # 邻块可能不在 top_k：按 id 再取
+            need: list[str] = []
+            for h in primary:
+                if h.chunk.prev_id:
+                    need.append(h.chunk.prev_id)
+                if h.chunk.next_id:
+                    need.append(h.chunk.next_id)
+            extra = self._milvus.get_by_ids(need)
+            by_id = {h.chunk.id: h.chunk for h in primary}
+            by_id.update(extra)
+            return expand_adjacent_hits(primary, by_id, radius=expand_neighbors)
+
         scored = [
             Hit(chunk=c, score=_cosine(qv, v))
             for c, v in zip(self.chunks, self.vectors)
