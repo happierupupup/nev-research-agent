@@ -15,6 +15,7 @@ import sys
 
 from agent.auth import User, is_admin, resolve_user
 from agent.core.intro import INTRO, is_capability_query
+from agent.display import format_event_admin, format_event_user
 from agent.memory import SessionMemory, UserMemoryStore, user_id_from_env
 
 DIVIDER = "─" * 56
@@ -32,16 +33,6 @@ EXIT_COMMANDS = {
     "不聊了",
 }
 
-# 普通用户：工具细节折叠成简短阶段提示
-_USER_THINKING = {
-    ("tool_call", "plan"): "正在理解问题…",
-    ("tool_call", "kb_search"): "正在检索知识库…",
-    ("tool_call", "web_search"): "正在检索公开信息…",
-    ("tool_call", "synthesize"): "正在整理分析…",
-    ("tool_call", "verify"): "正在核对要点…",
-    ("answer_ready", None): "即将输出回答…",
-}
-
 
 def _is_exit(text: str) -> bool:
     t = text.strip().lower().rstrip("。.！!？?")
@@ -49,46 +40,15 @@ def _is_exit(text: str) -> bool:
 
 
 def _print_event_admin(ev: dict) -> None:
-    kind = ev.get("kind")
-    if kind == "tool_call":
-        print(f"[{ev.get('step')}] {ev.get('tool')} ← {ev.get('query')}", flush=True)
-        return
-    if kind == "tool_result":
-        preview = ev.get("preview") or ""
-        if preview:
-            tool = ev.get("tool") or ""
-            tag = f"[{tool}] " if tool else ""
-            print(f"    → {tag}{preview}", flush=True)
-        return
-    if kind == "answer_ready":
-        print("    ✓ 检索结束，正在输出回答", flush=True)
+    line = format_event_admin(ev)
+    if line:
+        print(line, flush=True)
 
 
 def _print_event_user(ev: dict, seen_labels: set[str]) -> None:
-    kind = ev.get("kind")
-    if kind == "tool_result":
-        return  # 普通用户不展示工具返回细节
-    tool = str(ev.get("tool") or "") if kind == "tool_call" else None
-    key = (kind, tool if kind == "tool_call" else None)
-    # synthesize / verify 等也可能用 step 名
-    if kind == "tool_call" and key not in _USER_THINKING:
-        step = str(ev.get("step") or "")
-        if step == "supervisor" or tool == "plan":
-            key = ("tool_call", "plan")
-        elif tool in {"kb_search", "web_search", "synthesize", "verify"}:
-            key = ("tool_call", tool)
-        elif step in {"analyst", "verifier", "research"}:
-            key = (
-                "tool_call",
-                {"analyst": "synthesize", "verifier": "verify", "research": "kb_search"}.get(
-                    step, "plan"
-                ),
-            )
-    label = _USER_THINKING.get(key) or _USER_THINKING.get((kind, None))
-    if not label or label in seen_labels:
-        return
-    seen_labels.add(label)
-    print(f"· {label}", flush=True)
+    line = format_event_user(ev, seen_labels)
+    if line:
+        print(line, flush=True)
 
 
 def _print_sources(out: dict) -> None:

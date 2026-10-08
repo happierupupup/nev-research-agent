@@ -20,13 +20,16 @@
 ```
 nev-research-agent/
 ├── main.py                 # CLI 入口
-├── config/users.yaml       # 测试用户（admin / dev）
+├── web_app.py              # Gradio + SSE Web 入口
+├── config/users.yaml       # 测试用户（admin / alice / dev）+ 密码
 ├── requirements.txt
 ├── .env.example
 ├── src/
 │   ├── agent/              # 研究 Agent
 │   │   ├── cli.py          # 命令行交互
 │   │   ├── runtime.py      # 运行入口
+│   │   ├── display.py      # 角色分流展示
+│   │   ├── web/            # Gradio UI + FastAPI SSE
 │   │   ├── s1/             # 单 Agent（ReAct）
 │   │   ├── s2/             # 四节点：Supervisor / Research / Analyst / Verifier
 │   │   ├── tools/          # kb_search / web_search
@@ -85,7 +88,25 @@ python scripts/ingest_kb.py --also-milvus
 
 ## 怎么用
 
-### 问答
+### Gradio Web（推荐）
+
+```bash
+pip install -r requirements.txt   # Gradio 3.x，兼容 Python 3.9
+python web_app.py
+# 浏览器打开 http://127.0.0.1:7860/ui/
+```
+
+| 能力 | 说明 |
+|------|------|
+| 登录 | `config/users.yaml`；默认 `admin/admin`、`alice/alice` |
+| 会话 | 左侧列表，新建/切换/删除；状态落盘 `data/sessions/`（消息、工具事件、任务进展、STM） |
+| 对话 | 右侧输入输出；流式思考 + 回答（底层 SSE：`POST /api/sessions/{id}/stream`） |
+| 角色 | 管理员：完整工具调用；普通用户：仅简要思考阶段 |
+| 管理 | 管理员页：用户 CRUD、手动/批量爬虫、staging 审核 promote |
+
+环境变量：`NEV_WEB_HOST`（默认 `127.0.0.1`）、`NEV_WEB_PORT`（默认 `7860`）。
+
+### 问答（CLI）
 
 ```bash
 # 普通用户（默认）

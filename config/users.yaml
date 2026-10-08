@@ -1,15 +1,22 @@
 # 测试用户（本地角色分流；非生产鉴权）
-# 用法：python main.py --user admin "…"
-#       python main.py --user alice "…"
-# 也可设环境变量 NEV_USER_ID=admin|alice
+# CLI：python main.py --user admin "…"
+# Web：python web_app.py  → 用户 ID + 密码登录（未设 password 时默认= id）
 
 users:
   - id: admin
     name: 管理员
     role: admin
+    password: admin
     note: 可看完整思考过程与工具调用；可手动关键词+时间范围爬库
 
-  - id: dev
+  - id: alice
     name: 普通用户
     role: user
+    password: alice
     note: 仅简要思考过程；默认 KB 问答路径
+
+  - id: dev
+    name: 开发用户
+    role: user
+    password: dev
+    note: 普通用户（兼容旧配置）

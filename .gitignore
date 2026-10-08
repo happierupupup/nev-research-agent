@@ -17,6 +17,6 @@ data/kb_index/
 data/milvus/
 plan.md
 docs/
-agent/
+/agent/
 evals/baselines/
 data/

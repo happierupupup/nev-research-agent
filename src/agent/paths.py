@@ -12,4 +12,5 @@ KB_STAGING = ROOT / "data" / "kb_staging"  # 爬取待审；审核通过再进 K
 CRAWL_QUERIES = ROOT / "data" / "crawl" / "search_queries.yaml"  # v1 批量搜索词（保留）
 MILVUS_DB = ROOT / "data" / "milvus" / "nev.db"  # Milvus Lite 本地文件（无 Docker）
 MEMORY_DIR = ROOT / "data" / "memory" / "users"
+SESSIONS_DIR = ROOT / "data" / "sessions"  # Gradio 会话持久化
 USERS_FILE = ROOT / "config" / "users.yaml"  # 测试用户 admin / alice
