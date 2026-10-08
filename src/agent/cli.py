@@ -2,16 +2,18 @@
 CLI for nev-research-agent（默认 S2 四智能体）.
 
 Usage:
-    python main.py
-    python main.py "比亚迪刀片电池的核心卖点是什么？"
+    python main.py --user alice
+    python main.py --user admin "比亚迪刀片电池的核心卖点是什么？"
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
+from agent.auth import User, is_admin, resolve_user
 from agent.core.intro import INTRO, is_capability_query
 from agent.memory import SessionMemory, UserMemoryStore, user_id_from_env
 
@@ -30,13 +32,23 @@ EXIT_COMMANDS = {
     "不聊了",
 }
 
+# 普通用户：工具细节折叠成简短阶段提示
+_USER_THINKING = {
+    ("tool_call", "plan"): "正在理解问题…",
+    ("tool_call", "kb_search"): "正在检索知识库…",
+    ("tool_call", "web_search"): "正在检索公开信息…",
+    ("tool_call", "synthesize"): "正在整理分析…",
+    ("tool_call", "verify"): "正在核对要点…",
+    ("answer_ready", None): "即将输出回答…",
+}
+
 
 def _is_exit(text: str) -> bool:
     t = text.strip().lower().rstrip("。.！!？?")
     return t in EXIT_COMMANDS
 
 
-def _print_event(ev: dict) -> None:
+def _print_event_admin(ev: dict) -> None:
     kind = ev.get("kind")
     if kind == "tool_call":
         print(f"[{ev.get('step')}] {ev.get('tool')} ← {ev.get('query')}", flush=True)
@@ -50,6 +62,33 @@ def _print_event(ev: dict) -> None:
         return
     if kind == "answer_ready":
         print("    ✓ 检索结束，正在输出回答", flush=True)
+
+
+def _print_event_user(ev: dict, seen_labels: set[str]) -> None:
+    kind = ev.get("kind")
+    if kind == "tool_result":
+        return  # 普通用户不展示工具返回细节
+    tool = str(ev.get("tool") or "") if kind == "tool_call" else None
+    key = (kind, tool if kind == "tool_call" else None)
+    # synthesize / verify 等也可能用 step 名
+    if kind == "tool_call" and key not in _USER_THINKING:
+        step = str(ev.get("step") or "")
+        if step == "supervisor" or tool == "plan":
+            key = ("tool_call", "plan")
+        elif tool in {"kb_search", "web_search", "synthesize", "verify"}:
+            key = ("tool_call", tool)
+        elif step in {"analyst", "verifier", "research"}:
+            key = (
+                "tool_call",
+                {"analyst": "synthesize", "verifier": "verify", "research": "kb_search"}.get(
+                    step, "plan"
+                ),
+            )
+    label = _USER_THINKING.get(key) or _USER_THINKING.get((kind, None))
+    if not label or label in seen_labels:
+        return
+    seen_labels.add(label)
+    print(f"· {label}", flush=True)
 
 
 def _print_sources(out: dict) -> None:
@@ -72,11 +111,12 @@ def _print_sources(out: dict) -> None:
                 print(f"   {ref}")
 
 
-def _print_result(out: dict, *, streamed: bool) -> None:
-    if not streamed:
+def _print_result(out: dict, *, streamed: bool, user: User) -> None:
+    admin = is_admin(user)
+    if admin and not streamed:
         steps = out.get("tool_steps") or []
         print(f"\n{DIVIDER}")
-        print("思考 / 检索过程")
+        print("思考 / 工具调用过程（管理员）")
         print(DIVIDER)
         if not steps:
             print("(未调用工具)")
@@ -95,28 +135,35 @@ def _print_result(out: dict, *, streamed: bool) -> None:
     print(DIVIDER)
     print(report or "(无输出)")
     _print_sources(out)
-    trace = out.get("tool_trace") or {}
-    print(
-        f"\ntools: kb={out.get('kb_calls', 0)} web={out.get('web_calls', 0)} "
-        f"tokens={out.get('total_tokens', 0)} "
-        f"(p={out.get('prompt_tokens', 0)}/c={out.get('completion_tokens', 0)}"
-        f"/llm={out.get('llm_calls', 0)}) "
-        f"calls={trace.get('tool_calls')}"
-    )
+    if admin:
+        trace = out.get("tool_trace") or {}
+        print(
+            f"\ntools: kb={out.get('kb_calls', 0)} web={out.get('web_calls', 0)} "
+            f"tokens={out.get('total_tokens', 0)} "
+            f"(p={out.get('prompt_tokens', 0)}/c={out.get('completion_tokens', 0)}"
+            f"/llm={out.get('llm_calls', 0)}) "
+            f"calls={trace.get('tool_calls')}"
+        )
     print()
 
 
-def _print_intro() -> None:
+def _print_intro(user: User) -> None:
+    role_cn = "管理员" if is_admin(user) else "普通用户"
     print(f"\n{DIVIDER}")
-    print("  NEV Research Agent  |  新能源汽车研究助手")
+    print(f"  NEV Research Agent  |  {user.name}（{role_cn}）")
     print(DIVIDER)
     print(INTRO, end="" if INTRO.endswith("\n") else "\n")
+    if is_admin(user):
+        print("提示: 管理员可见完整思考与工具调用；扩库用 scripts/crawl_to_staging.py --admin\n")
+    else:
+        print("提示: 普通用户仅显示简要思考过程。\n")
 
 
 def _run_one(
     query: str,
     *,
     as_json: bool,
+    user: User,
     session: SessionMemory | None = None,
     user_memory: UserMemoryStore | None = None,
 ) -> None:
@@ -137,19 +184,24 @@ def _run_one(
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return
 
+    admin = is_admin(user)
     print(f"\n{DIVIDER}")
-    print("思考 / 检索过程")
+    print("思考 / 工具调用过程（管理员）" if admin else "思考过程")
     print(DIVIDER)
     seen = {"n": 0}
+    user_labels: set[str] = set()
 
     def on_event(ev: dict) -> None:
         seen["n"] += 1
-        _print_event(ev)
+        if admin:
+            _print_event_admin(ev)
+        else:
+            _print_event_user(ev, user_labels)
 
     out = run_research(query, on_event=on_event, session=session, user_memory=user_memory)
     if seen["n"] == 0:
-        print("(未调用工具)")
-    _print_result(out, streamed=True)
+        print("(未调用工具)" if admin else "· 正在生成回答…")
+    _print_result(out, streamed=True, user=user)
 
 
 def _flush_memory(store: UserMemoryStore | None, session: SessionMemory | None) -> None:
@@ -170,24 +222,40 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="one-shot 也读写长期记忆（REPL 默认开启）",
     )
-    p.add_argument("--user", default=None, help="长期记忆用户 id，默认 NEV_USER_ID 或 local")
+    p.add_argument(
+        "--user",
+        default=None,
+        help="用户 id：admin（管理员）/ alice（普通用户）；默认 NEV_USER_ID 或 alice",
+    )
     args = p.parse_args(argv)
 
-    uid = user_id_from_env(args.user)
+    raw_uid = args.user or None
+    # 未指定时默认 alice（普通用户），避免误用 local 看不到角色差异
+    if raw_uid is None and not (os.getenv("NEV_USER_ID") or "").strip():
+        raw_uid = "alice"
+    uid = user_id_from_env(raw_uid)
+    user = resolve_user(uid)
+
     use_memory = bool(args.memory or not args.question)
     store = UserMemoryStore.load(uid) if use_memory else None
     session = SessionMemory() if use_memory else None
 
     if args.question:
         try:
-            _run_one(args.question, as_json=args.json, session=session, user_memory=store)
+            _run_one(
+                args.question,
+                as_json=args.json,
+                user=user,
+                session=session,
+                user_memory=store,
+            )
             _flush_memory(store, session)
         except Exception as exc:  # noqa: BLE001
             print(f"Error: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
         return
 
-    _print_intro()
+    _print_intro(user)
 
     while True:
         try:
@@ -203,7 +271,7 @@ def main(argv: list[str] | None = None) -> None:
             print("Bye.")
             break
         try:
-            _run_one(query, as_json=args.json, session=session, user_memory=store)
+            _run_one(query, as_json=args.json, user=user, session=session, user_memory=store)
         except Exception as exc:  # noqa: BLE001
             print(f"\nError: {exc}\n")
 

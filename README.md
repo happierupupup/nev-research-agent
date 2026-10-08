@@ -1,73 +1,132 @@
 # NEV Research Agent
 
-新能源汽车行业研究分析 Agent：本地知识库 + 联网检索，输出带引用的短答或分析文档。
+新能源汽车行业研究助手：基于本地知识库（可选联网检索）回答问题，输出带引用的短答或分析。
 
-路径：KB → S1 → S1.5 记忆 → **S2 四智能体（当前默认）** → 缓存 / GraphRAG。
+**范围：** 整车、电池、供应链、政策、竞品。非新能源相关问题会拒答。
 
-只回答整车 / 电池 / 供应链 / 政策 / 竞品。非新能源直接拒答。「你会做什么」走固定介绍。
+**角色：**
 
-## 仓库地图
+| 用户 | 说明 |
+|------|------|
+| `dev` | 普通用户：简要思考过程，默认走知识库问答 |
+| `admin` | 管理员：完整思考与工具调用；可手动扩库爬取 |
 
-| 路径 | 做什么 |
-|------|--------|
-| `main.py` | CLI 入口（薄封装 → `src/agent/cli.py`） |
-| `src/agent/` | 研究 Agent：runtime、core、memory、tools、s1、s2 |
-| `src/kb/` | 语料入库 / 检索（`KB_BACKEND=json|milvus`） |
-| `evals/` | 评测：`datasets/` 金标、`runners/` 脚本、`baselines/` 快照 |
-| `scripts/` | 运维：`ingest_kb` / `ask_kb` |
-| `tests/` | 单测 |
-| `docs/` | 说明（本机留存，gitignore） |
-| `data/` | 语料与索引、用户记忆（gitignore） |
+用户定义见 `config/users.yaml`。
+
+---
+
+## 项目结构
+
+```
+nev-research-agent/
+├── main.py                 # CLI 入口
+├── config/users.yaml       # 测试用户（admin / dev）
+├── requirements.txt
+├── .env.example
+├── src/
+│   ├── agent/              # 研究 Agent
+│   │   ├── cli.py          # 命令行交互
+│   │   ├── runtime.py      # 运行入口
+│   │   ├── s1/             # 单 Agent（ReAct）
+│   │   ├── s2/             # 四节点：Supervisor / Research / Analyst / Verifier
+│   │   ├── tools/          # kb_search / web_search
+│   │   └── memory/         # 会话与长期记忆
+│   └── kb/                 # 分块、入库、检索、爬取清洗
+├── scripts/
+│   ├── ingest_kb.py        # 语料 → 向量索引
+│   ├── ask_kb.py           # 仅知识库问答（不经多 Agent）
+│   ├── crawl_to_staging.py # 扩库爬取 → 待审
+│   ├── promote_staging.py  # 审核通过 → 正式语料
+│   └── clean_staging.py    # 清洗待审稿
+├── data/                   # 本机数据（gitignore）
+│   ├── kb/                 # 正式语料
+│   ├── kb_staging/         # 爬取待审
+│   ├── kb_index/           # JSON 向量索引
+│   ├── milvus/             # Milvus Lite（可选）
+│   └── crawl/search_queries.yaml  # 批量扩库搜索词
+├── evals/                  # 评测数据集与脚本
+└── tests/
+```
+
+---
 
 ## 安装
 
 ```bash
 cd nev-research-agent
-python -m venv .venv
-# Windows: .\.venv\Scripts\Activate.ps1
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-pip install -e .                 # 把 src/agent、src/kb 装进环境
-cp .env.example .env             # 填 OPENAI/DASHSCOPE；可选 TAVILY_API_KEY
+pip install -e .
+cp .env.example .env              # 填写 API Key 等
+```
+
+`.env` 至少需要：
+
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL`（兼容 DashScope 等）
+- `EMBEDDING_MODEL`（入库与检索用）
+- 可选：`TAVILY_API_KEY`、`KB_BACKEND=milvus`、`NEV_USER_ID`
+
+未执行 `pip install -e .` 时，`main.py` 与 `scripts/` 会自动把 `src/` 加入路径。
+
+### 知识库入库
+
+```bash
+# 默认：写入 data/kb_index/（本地 JSON 余弦）
 python scripts/ingest_kb.py
-python main.py
-```
 
-### 无 Docker：Milvus Lite（可选）
-
-默认仍是本地 JSON 余弦。要切向量库文件（无需起服务）：
-
-```bash
-# 若 pip 卡住：先装 wheel，再装 Lite
+# 可选：同时写入 Milvus Lite（无 Docker）
 pip install "grpcio==1.67.1" "setuptools>=69,<81" "pymilvus==2.5.14" "milvus-lite==2.4.12"
-python scripts/ingest_kb.py --also-milvus   # 写入 data/milvus/nev.db（JSON 仍会写）
-# .env 加一行：
-# KB_BACKEND=milvus
-python scripts/ask_kb.py "比亚迪刀片电池的核心卖点是什么？"
+python scripts/ingest_kb.py --also-milvus
+# .env 中设 KB_BACKEND=milvus
 ```
 
-未 `pip install -e .` 时，`main.py` / `evals/run_*.py` / `scripts/*` 会自动把 `src/` 加进 `sys.path`。
+---
 
-## 当前：S2 + 记忆
+## 怎么用
 
-- 默认 `AGENT_MODE=s2`：`src/agent/s2/{supervisor,research,analyst,verifier}/`
-- 回退：`AGENT_MODE=s1` → `src/agent/s1/`
-- KB：`data/kb/` → `data/kb_index/`；联网 Tavily → DDG → Bing
-- 黄金集关记忆；引用必须来自本轮工具
+### 问答
 
 ```bash
-python main.py "比亚迪刀片电池的核心卖点是什么？"
-python main.py --memory --user alice "分析比亚迪海外扩张"
+# 普通用户（默认）
+python main.py --user alice
+python main.py --user alice "比亚迪刀片电池的核心卖点是什么？"
+
+# 管理员（可见工具调用细节）
+python main.py --user admin "分析比亚迪海外扩张"
+
+# 开启长期记忆
+python main.py --memory --user alice "它和宁德时代比呢？"
+
+# 仅知识库（不经多 Agent 编排）
 python scripts/ask_kb.py "比亚迪刀片电池的核心卖点是什么？"
 ```
 
-## 评测
+`AGENT_MODE=s1` 可切回单 Agent；默认 `s2`。
+
+### 管理员扩库
+
+爬取结果进入 `data/kb_staging/`，需审核后再入库。
+
+```bash
+# 手动：关键词 + 时间范围（需管理员）
+python scripts/crawl_to_staging.py --admin --user admin
+python scripts/crawl_to_staging.py --user admin \
+  --keyword "比亚迪 海外" --from 2026-01-01 --to 2026-06-30
+
+# 批量：按 data/crawl/search_queries.yaml
+python scripts/crawl_to_staging.py --from-config
+
+# 审核通过 → data/kb/crawl/，再重建索引
+python scripts/promote_staging.py --approve <doc_id>
+python scripts/ingest_kb.py --also-milvus
+```
+
+### 评测与单测
 
 ```bash
 pytest -q
-python evals/run_retrieval.py --tag kb_expand --method "本地余弦检索 13 篇 KB"
-python evals/run_eval.py --suite golden --tag after_s2 --ids Q1,Q2,G1 \
-  --method "S2 四节点" --compare after_tavily
+python evals/run_retrieval.py --tag kb_expand
+python evals/run_eval.py --suite golden --tag after_s2 --ids Q1,Q2
 python evals/run_memory_eval.py --tag after_memory
 ```
-
-实现位于 `evals/runners/`；根下 `evals/run_*.py` 为兼容入口。

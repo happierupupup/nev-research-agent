@@ -125,6 +125,25 @@ def fetch_url(url: str, *, timeout: float = 30.0) -> tuple[int, str, str]:
         return resp.status_code, ctype, resp.text
 
 
+def augment_query_with_dates(
+    query: str,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> str:
+    """把时间范围写进检索词（搜索引擎偏置；非严格日期过滤）。"""
+    q = (query or "").strip()
+    df = (date_from or "").strip()
+    dt = (date_to or "").strip()
+    if not df and not dt:
+        return q
+    if df and dt and df == dt:
+        return f"{q} {df}".strip()
+    if df and dt:
+        return f"{q} {df}..{dt}".strip()
+    return f"{q} {df or dt}".strip()
+
+
 def write_staging_doc(
     *,
     doc_id: str,
@@ -139,6 +158,9 @@ def write_staging_doc(
     error: str | None = None,
     snippet: str = "",
     staging_dir: Path | None = None,
+    date_from: str = "",
+    date_to: str = "",
+    crawl_mode: str = "",
 ) -> Path:
     from kb.clean import rebuild_staging_markdown
 
@@ -161,6 +183,9 @@ def write_staging_doc(
         "tags": tags or [],
         "snippet": re.sub(r"\s+", " ", snippet or "").strip()[:400],
         "error": re.sub(r"\s+", " ", error or "").strip()[:300],
+        "date_from": date_from or "",
+        "date_to": date_to or "",
+        "crawl_mode": crawl_mode or "",
     }
     if error or not (body or "").strip():
         meta["cleaned"] = False
@@ -190,7 +215,15 @@ def _fetch_one_page(
     snippet: str,
     max_chars: int,
     staging_dir: Path | None,
+    date_from: str = "",
+    date_to: str = "",
+    crawl_mode: str = "",
 ) -> dict[str, Any]:
+    extra = {
+        "date_from": date_from,
+        "date_to": date_to,
+        "crawl_mode": crawl_mode,
+    }
     try:
         code, ctype, raw = fetch_url(url)
         if code >= 400:
@@ -207,6 +240,7 @@ def _fetch_one_page(
                 error=f"HTTP {code}",
                 snippet=snippet,
                 staging_dir=staging_dir,
+                **extra,
             )
             return {"id": doc_id, "ok": False, "path": str(path), "error": f"HTTP {code}", "url": url}
         title, text = ("", raw)
@@ -226,6 +260,7 @@ def _fetch_one_page(
             status_code=code,
             snippet=snippet,
             staging_dir=staging_dir,
+            **extra,
         )
         return {
             "id": doc_id,
@@ -249,6 +284,7 @@ def _fetch_one_page(
             error=str(exc),
             snippet=snippet,
             staging_dir=staging_dir,
+            **extra,
         )
         return {"id": doc_id, "ok": False, "path": str(path), "error": str(exc), "url": url}
 
@@ -259,17 +295,25 @@ def crawl_by_queries(
     staging_dir: Path | None = None,
     include_optional: bool = False,
     max_chars: int | None = None,
+    queries: list[dict[str, Any]] | None = None,
+    crawl_mode: str = "config_yaml",
 ) -> list[dict[str, Any]]:
-    """按搜索词检索并抓取候选页到 staging。"""
+    """
+    按搜索词检索并抓取候选页到 staging。
+
+    - 默认读 search_queries.yaml（v1 批量，保留）
+    - 传入 queries= 可走管理员手动关键词（v2）
+    """
     from agent.tools.web_tools import run_web_search
 
-    defaults, queries = load_config(config_path)
+    defaults, file_queries = load_config(config_path)
+    items = list(queries) if queries is not None else list(file_queries)
     default_top_k = int(defaults.get("top_k") or 5)
     default_max_chars = int(max_chars or defaults.get("max_chars") or 20_000)
     default_domains = [str(d) for d in (defaults.get("allow_domains") or [])]
 
     results: list[dict[str, Any]] = []
-    for item in queries:
+    for item in items:
         if item.get("optional") and not include_optional:
             continue
         qid = str(item.get("id") or "q")
@@ -278,6 +322,9 @@ def crawl_by_queries(
         top_k = int(item.get("top_k") or default_top_k)
         allow = [str(d) for d in (item.get("allow_domains") or default_domains)]
         page_max = int(item.get("max_chars") or default_max_chars)
+        date_from = str(item.get("date_from") or "").strip()
+        date_to = str(item.get("date_to") or "").strip()
+        mode = str(item.get("crawl_mode") or crawl_mode or "")
 
         # 兼容：若仍写了 url，则直抓（不推荐）
         if item.get("url") and not item.get("query"):
@@ -292,13 +339,17 @@ def crawl_by_queries(
                     snippet="",
                     max_chars=page_max,
                     staging_dir=staging_dir,
+                    date_from=date_from,
+                    date_to=date_to,
+                    crawl_mode=mode,
                 )
             )
             continue
 
-        query = str(item.get("query") or "").strip()
-        if not query:
+        raw_query = str(item.get("query") or "").strip()
+        if not raw_query:
             continue
+        query = augment_query_with_dates(raw_query, date_from=date_from or None, date_to=date_to or None)
         # 查询之间稍等，降低检索接口限流概率
         if results:
             time.sleep(1.5)
@@ -331,6 +382,9 @@ def crawl_by_queries(
                     snippet=str(hit.get("snippet") or ""),
                     max_chars=page_max,
                     staging_dir=staging_dir,
+                    date_from=date_from,
+                    date_to=date_to,
+                    crawl_mode=mode,
                 )
             )
             if rank >= top_k:
@@ -345,6 +399,41 @@ def crawl_by_queries(
                 }
             )
     return results
+
+
+def crawl_manual(
+    *,
+    keyword: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    top_k: int = 4,
+    query_id: str | None = None,
+    note: str = "",
+    staging_dir: Path | None = None,
+    max_chars: int | None = None,
+) -> list[dict[str, Any]]:
+    """管理员手动：关键词 + 可选时间范围 → staging。"""
+    kw = (keyword or "").strip()
+    if not kw:
+        raise ValueError("keyword 不能为空")
+    qid = (query_id or _slug("manual", kw[:40])).strip() or "manual"
+    item = {
+        "id": qid,
+        "query": kw,
+        "note": note or "管理员手动扩库",
+        "tags": ["admin_manual"],
+        "top_k": int(top_k),
+        "date_from": (date_from or "").strip(),
+        "date_to": (date_to or "").strip(),
+        "crawl_mode": "admin_manual",
+    }
+    return crawl_by_queries(
+        staging_dir=staging_dir,
+        max_chars=max_chars,
+        queries=[item],
+        crawl_mode="admin_manual",
+        include_optional=True,
+    )
 
 
 # 兼容旧名
