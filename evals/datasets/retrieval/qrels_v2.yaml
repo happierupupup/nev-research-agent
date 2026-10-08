@@ -1,0 +1,240 @@
+# 检索金标 v2（RAG 方案对照用）
+#
+# 约定：
+# - 文件级相关：chunk.source 落在 relevant 即命中
+# - 标注依据 = 文档主题是否能回答该问，**禁止**按某次检索结果回标
+# - 冻结本文件后再试：查询改写 / 混合检索 / rerank；每次只改一处，重跑评测比 P@k、R@k
+# - 旧版 10 题保留为 qrels.yaml（兼容）；本文件为扩题集
+#
+# 指标：P@k≈准确率，R@k≈召回率，Hit@k；默认 k=5（语料更大）
+
+version: "2.0"
+k: 5
+domain: 新能源汽车
+notes: |
+  语料：seed 演示稿 + crawl/ 管理员扩库稿。
+  基线命令见下方；方案对照时固定 --qrels 本文件。
+
+queries:
+  # —— 保留并略扩：原黄金检索题 ——
+  - id: Q1
+    query: 比亚迪刀片电池的核心卖点是什么？
+    relevant:
+      - byd_blade_battery.md
+    tags: [battery, byd, seed]
+
+  - id: Q1b
+    query: 刀片电池为什么说更安全、空间利用率更高？
+    relevant:
+      - byd_blade_battery.md
+      - battery_lfp_nmc.md
+    tags: [battery, paraphrase]
+
+  - id: Q2
+    query: 2024 年中国新能源乘用车渗透率大概多少？
+    relevant:
+      - nev_penetration_2024.md
+      - iea_global_ev_2024_2025.md
+    tags: [penetration, 2024, seed]
+
+  - id: Q2b
+    query: 乘联会口径下国内新能源渗透率最近到了多少？
+    relevant:
+      - nev_penetration_2024.md
+      - crawl/china_nev_penetration_2026_2_stcn_com.md
+      - crawl/china_nev_penetration_2026_3_finance_sina_com_cn.md
+      - crawl/china_nev_penetration_2026_1_m_gasgoo_com.md
+    tags: [penetration, 2026, crawl]
+
+  - id: G1
+    query: 分析比亚迪 2024 年海外扩张战略及风险评估
+    relevant:
+      - byd_overseas_2024.md
+      - ev_trade_barriers.md
+    tags: [overseas, byd, seed]
+
+  - id: G1b
+    query: 比亚迪海外工厂和出口在 2026 年有什么新动态？
+    relevant:
+      - byd_overseas_2024.md
+      - crawl/byd_overseas_2026_1_xueqiu_com.md
+      - crawl/byd_overseas_2026_2_chejiahao_autohome_com_cn.md
+      - ev_trade_barriers.md
+    tags: [overseas, byd, 2026, crawl]
+
+  - id: G2
+    query: 梳理宁德时代电池供应链的集中度与潜在风险
+    relevant:
+      - catl_supply_chain.md
+      - upstream_lithium_nickel_cobalt.md
+      - battery_second_tier.md
+    tags: [catl, supply, seed]
+
+  - id: G2b
+    query: 全球动力电池装车量份额宁德时代大概多少、和韩日厂商对比如何？
+    relevant:
+      - catl_supply_chain.md
+      - crawl/catl_supply_2026_1_www_iautodaily_com.md
+      - crawl/catl_supply_2026_2_finance_sina_com_cn.md
+      - battery_second_tier.md
+    tags: [catl, share, crawl]
+
+  - id: G3
+    query: 对比特斯拉 vs 比亚迪：成本结构、技术路线、市场份额变化
+    relevant:
+      - tesla_vs_byd_2024.md
+      - battery_lfp_nmc.md
+      - byd_blade_battery.md
+    tags: [compete, seed]
+
+  - id: G3b
+    query: 特斯拉和比亚迪谁在成本和电池路线上更有优势？
+    relevant:
+      - tesla_vs_byd_2024.md
+      - battery_lfp_nmc.md
+      - byd_blade_battery.md
+    tags: [compete, paraphrase]
+
+  - id: R1
+    query: 宁德时代 2024 年全球动力电池市占率大概多少？
+    relevant:
+      - catl_supply_chain.md
+    tags: [catl, seed]
+
+  - id: R2
+    query: 欧盟对中国电动汽车加征关税对出海有何影响？
+    relevant:
+      - ev_trade_barriers.md
+      - byd_overseas_2024.md
+    tags: [trade, seed]
+
+  - id: R3
+    query: 磷酸铁锂和三元锂电池有什么区别？
+    relevant:
+      - battery_lfp_nmc.md
+    tags: [battery, seed]
+
+  - id: R3b
+    query: LFP 和 NMC 正极在成本和能量密度上怎么取舍？
+    relevant:
+      - battery_lfp_nmc.md
+      - byd_blade_battery.md
+    tags: [battery, paraphrase]
+
+  - id: R4
+    query: 2024 年汽车以旧换新买新能源补贴多少钱？
+    relevant:
+      - china_nev_policy_2024.md
+    tags: [policy, 2024, seed]
+
+  - id: R4b
+    query: 2026 年以旧换新或设备更新政策对买新能源车有什么补贴？
+    relevant:
+      - china_nev_policy_2024.md
+      - crawl/china_nev_policy_2026_1_chejiahao_autohome_com_cn.md
+      - crawl/china_nev_policy_2026_2_www_ndrc_gov_cn.md
+      - crawl/china_nev_policy_2026_3_www_beijing_gov_cn.md
+    tags: [policy, 2026, crawl]
+
+  - id: R5
+    query: 蔚来换电模式和理想增程有什么不同？
+    relevant:
+      - china_new_forces.md
+      - charging_and_swap.md
+    tags: [new_forces, seed]
+
+  - id: R5b
+    query: 新势力里换电、增程、纯电补能路线分别怎么定位？
+    relevant:
+      - china_new_forces.md
+      - charging_and_swap.md
+    tags: [new_forces, paraphrase]
+
+  # —— 新增专题 ——
+  - id: N1
+    query: 锂镍钴上游资源集中在哪些地区、对电池供应链有什么风险？
+    relevant:
+      - upstream_lithium_nickel_cobalt.md
+      - catl_supply_chain.md
+    tags: [upstream]
+
+  - id: N2
+    query: 动力电池第二梯队厂商在装车量格局里扮演什么角色？
+    relevant:
+      - battery_second_tier.md
+      - catl_supply_chain.md
+    tags: [second_tier]
+
+  - id: N3
+    query: 充电、换电、超充几种补能方式有何差异？
+    relevant:
+      - charging_and_swap.md
+    tags: [charging]
+
+  - id: N4
+    query: IEA 对全球电动汽车销量和展望怎么看？
+    relevant:
+      - iea_global_ev_2024_2025.md
+      - crawl/global_ev_2026_2_www_iea_org.md
+      - crawl/global_ev_2026_1_finance_people_com_cn.md
+    tags: [global, iea]
+
+  - id: N5
+    query: 2026 年全球电动汽车市场增长和展望有哪些要点？
+    relevant:
+      - crawl/global_ev_2026_1_finance_people_com_cn.md
+      - crawl/global_ev_2026_2_www_iea_org.md
+      - crawl/global_ev_2026_4_m_gasgoo_com.md
+      - iea_global_ev_2024_2025.md
+    tags: [global, 2026, crawl]
+
+  - id: N6
+    query: 新能源汽车下乡和以旧换新是不是一回事？
+    relevant:
+      - china_nev_policy_2024.md
+      - crawl/china_nev_policy_2026_4_www_news_cn.md
+      - crawl/china_nev_policy_2026_2_www_ndrc_gov_cn.md
+    tags: [policy, crawl]
+
+  - id: N7
+    query: 中国新能源乘用车渗透率创新高说明了什么？
+    relevant:
+      - crawl/china_nev_penetration_2026_3_finance_sina_com_cn.md
+      - crawl/china_nev_penetration_2026_2_stcn_com.md
+      - nev_penetration_2024.md
+    tags: [penetration, crawl]
+
+  - id: N8
+    query: 贸易壁垒背景下比亚迪如何布局海外产能？
+    relevant:
+      - byd_overseas_2024.md
+      - ev_trade_barriers.md
+      - crawl/byd_overseas_2026_2_chejiahao_autohome_com_cn.md
+    tags: [overseas, trade]
+
+  - id: N9
+    query: 刀片电池属于磷酸铁锂还是三元路线？
+    relevant:
+      - byd_blade_battery.md
+      - battery_lfp_nmc.md
+    tags: [battery]
+
+  - id: N10
+    query: 双积分和以旧换新分别从什么角度推动新能源渗透？
+    relevant:
+      - china_nev_policy_2024.md
+    tags: [policy]
+
+  # —— 易混 / 抗噪（相关集要紧，测准召） ——
+  - id: H1
+    query: 只谈宁德时代市占，不要扯到整车品牌销量排行
+    relevant:
+      - catl_supply_chain.md
+      - crawl/catl_supply_2026_2_finance_sina_com_cn.md
+    tags: [hard, catl]
+
+  - id: H2
+    query: 欧盟反补贴税具体怎么影响中国车企出口欧洲？
+    relevant:
+      - ev_trade_barriers.md
+    tags: [hard, trade]

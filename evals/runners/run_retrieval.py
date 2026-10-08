@@ -1,10 +1,13 @@
-#!/usr/bin/env python3
 """
 KB 检索评测：P@k / R@k / Hit@k（不跑对话 LLM，只需 embedding）。
 
 用法:
+  # 文件级（旧）
   python evals/run_retrieval.py --tag kb_expand
-  python evals/run_retrieval.py --tag after_chunk --compare kb_expand
+
+  # chunk 级（加固评测主用）
+  python evals/run_retrieval.py --tag rag_chunk_baseline_v3 \\
+    --qrels evals/datasets/retrieval/qrels_v3.yaml --level chunk
 """
 
 from __future__ import annotations
@@ -24,13 +27,24 @@ for _p in (str(ROOT), str(SRC)):
         sys.path.insert(0, _p)
 
 import yaml  # type: ignore
+from dotenv import load_dotenv
 
-from evals.metrics import attach_run_meta, hit_at_k, precision_at_k, recall_at_k, write_baseline
+load_dotenv(ROOT / ".env")
+
+from evals.metrics import (
+    attach_run_meta,
+    hit_at_k,
+    mrr,
+    ndcg_at_k,
+    precision_at_k,
+    recall_at_k,
+    write_baseline,
+)
 from kb import KnowledgeBase
 
 EVALS = ROOT / "evals"
 BASELINES = EVALS / "baselines"
-QRELS = EVALS / "datasets" / "retrieval" / "qrels.yaml"
+QRELS_DEFAULT = EVALS / "datasets" / "retrieval" / "qrels.yaml"
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -49,6 +63,33 @@ def _unique(items: list[str]) -> list[str]:
     return out
 
 
+def _gold_ids(item: dict[str, Any], *, level: str) -> set[str]:
+    if level == "chunk":
+        raw = item.get("relevant_chunks") or item.get("relevant") or []
+    else:
+        raw = item.get("relevant_docs") or item.get("relevant") or []
+    return {str(x) for x in raw}
+
+
+def _validate_gold(spec: dict[str, Any], *, level: str, kb: KnowledgeBase) -> list[str]:
+    missing: list[str] = []
+    known_chunks = set(kb.chunks_by_id) if level == "chunk" and kb.chunks_by_id else set()
+    docs_root = ROOT / "data" / "kb"
+    seen: set[str] = set()
+    for item in spec.get("queries") or []:
+        for gid in _gold_ids(item, level=level):
+            if gid in seen:
+                continue
+            seen.add(gid)
+            if level == "chunk":
+                if known_chunks and gid not in known_chunks:
+                    missing.append(gid)
+            else:
+                if not (docs_root / gid).exists():
+                    missing.append(gid)
+    return missing
+
+
 def run_suite(
     *,
     tag: str,
@@ -56,29 +97,71 @@ def run_suite(
     compare_tag: str | None,
     method: str,
     notes: str = "",
+    qrels_path: Path | None = None,
+    level: str = "doc",
+    expand_neighbors: int | None = None,
 ) -> Path:
-    spec = _load_yaml(QRELS)
-    top_k = int(k or spec.get("k") or 4)
+    qrels = qrels_path or QRELS_DEFAULT
+    if not qrels.is_absolute():
+        qrels = (ROOT / qrels).resolve()
+    if not qrels.exists():
+        raise FileNotFoundError(f"qrels not found: {qrels}")
+
+    level = (level or "doc").strip().lower()
+    if level not in {"doc", "chunk"}:
+        raise SystemExit("--level 须为 doc 或 chunk")
+
+    spec = _load_yaml(qrels)
+    # chunk 级默认不扩邻块，避免同文档重复槽位干扰准确率
+    if expand_neighbors is None:
+        expand_neighbors = 0 if level == "chunk" else 1
+    top_k = int(k or spec.get("k") or (8 if level == "chunk" else 4))
+
     kb = KnowledgeBase()
+    if level == "chunk" and kb.backend == "milvus" and not kb.chunks_by_id:
+        # milvus 模式未预载 chunks；校验跳过，仅靠运行期 id
+        pass
+
+    missing = _validate_gold(spec, level=level, kb=kb)
+    if missing:
+        print(f"WARN: 金标缺失 {len(missing)} 个: {missing[:8]}…", flush=True)
 
     results: list[dict[str, Any]] = []
     t0 = time.perf_counter()
     for item in spec["queries"]:
-        relevant = set(item["relevant"])
-        hits = kb.search(item["query"], top_k=top_k)
-        ranked_sources = [h.chunk.source for h in hits]
-        unique_docs = _unique(ranked_sources)
+        relevant = _gold_ids(item, level=level)
+        if not relevant:
+            raise SystemExit(f"query {item.get('id')} 无金标（level={level}）")
+        hits = kb.search(
+            item["query"],
+            top_k=top_k,
+            expand_neighbors=int(expand_neighbors),
+        )
+        if level == "chunk":
+            ranked = [h.chunk.id for h in hits]
+        else:
+            ranked = [h.chunk.source for h in hits]
+        unique_ranked = _unique(ranked)
         row = {
             "id": item["id"],
             "query": item["query"],
+            "level": level,
             "relevant": sorted(relevant),
-            "retrieved_sources": ranked_sources,
-            "retrieved_docs": unique_docs,
-            "p_at_k": precision_at_k(ranked_sources, relevant, top_k),
-            "r_at_k": recall_at_k(unique_docs, relevant, top_k),
-            "hit_at_k": hit_at_k(ranked_sources, relevant, top_k),
-            "top_titles": [h.chunk.title for h in hits],
+            "retrieved": ranked,
+            "retrieved_unique": unique_ranked,
+            "retrieved_docs": _unique([h.chunk.source for h in hits]),
+            "p_at_k": precision_at_k(ranked, relevant, top_k),
+            "r_at_k": recall_at_k(ranked, relevant, top_k),
+            "hit_at_k": hit_at_k(ranked, relevant, top_k),
+            "ndcg_at_k": ndcg_at_k(ranked, relevant, top_k),
+            "mrr": mrr(ranked, relevant, top_k),
+            "top_titles": [h.chunk.title for h in hits[:top_k]],
+            "tags": item.get("tags") or [],
         }
+        # 兼容旧字段名
+        if level == "doc":
+            row["retrieved_sources"] = ranked
+            row["retrieved_docs"] = unique_ranked
         results.append(row)
 
     wall = round(time.perf_counter() - t0, 2)
@@ -86,23 +169,36 @@ def run_suite(
     mean_p = round(sum(r["p_at_k"] for r in results) / n, 4)
     mean_r = round(sum(r["r_at_k"] for r in results) / n, 4)
     mean_hit = round(sum(r["hit_at_k"] for r in results) / n, 4)
+    mean_ndcg = round(sum(r["ndcg_at_k"] for r in results) / n, 4)
+    mean_mrr = round(sum(r["mrr"] for r in results) / n, 4)
+
+    try:
+        qrels_rel = str(qrels.relative_to(ROOT))
+    except ValueError:
+        qrels_rel = str(qrels)
 
     payload = attach_run_meta(
         {
             "tag": tag,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "suite": "retrieval",
+            "level": level,
+            "expand_neighbors": int(expand_neighbors),
+            "qrels": qrels_rel,
+            "qrels_version": spec.get("version"),
             "k": top_k,
             "n_queries": len(results),
             "wall_seconds": wall,
             "mean_p_at_k": mean_p,
             "mean_r_at_k": mean_r,
             "mean_hit_at_k": mean_hit,
+            "mean_ndcg_at_k": mean_ndcg,
+            "mean_mrr": mean_mrr,
             "results": results,
         },
         method=method,
         notes=notes,
-        code=["src/kb/__init__.py", "scripts/ingest_kb.py", "evals/datasets/retrieval/qrels.yaml"],
+        code=["src/kb/__init__.py", "scripts/ingest_kb.py", qrels_rel],
         compare_to=compare_tag,
     )
 
@@ -111,11 +207,16 @@ def run_suite(
     print(f"Wrote {hist_path}")
     print(f"Latest alias {BASELINES / f'retrieval_{tag}.json'}")
     print(f"Method: {method}")
-    print(f"  mean P@{top_k}={mean_p}  R@{top_k}={mean_r}  Hit@{top_k}={mean_hit}  n={len(results)}")
+    print(
+        f"  level={level} expand_neighbors={expand_neighbors}  "
+        f"mean P@{top_k}={mean_p}  R@{top_k}={mean_r}  Hit@{top_k}={mean_hit}  "
+        f"nDCG@{top_k}={mean_ndcg}  MRR={mean_mrr}  n={len(results)}"
+    )
     for r in results:
+        shown = r.get("retrieved_unique") or r.get("retrieved_docs") or []
         print(
             f"  [{r['id']}] P={r['p_at_k']} R={r['r_at_k']} Hit={r['hit_at_k']} "
-            f"docs={r['retrieved_docs']}"
+            f"nDCG={r['ndcg_at_k']} MRR={r['mrr']} top={shown[:5]}"
         )
 
     if compare_tag:
@@ -132,6 +233,10 @@ def run_suite(
                     "delta_mean_hit_at_k": round(
                         mean_hit - float(baseline.get("mean_hit_at_k") or 0), 4
                     ),
+                    "delta_mean_ndcg_at_k": round(
+                        mean_ndcg - float(baseline.get("mean_ndcg_at_k") or 0), 4
+                    ),
+                    "delta_mean_mrr": round(mean_mrr - float(baseline.get("mean_mrr") or 0), 4),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -142,16 +247,39 @@ def run_suite(
 
 def main() -> None:
     p = argparse.ArgumentParser(description="NEV KB retrieval eval (P@k / R@k / Hit@k)")
-    p.add_argument("--tag", required=True, help="snapshot name, e.g. kb_expand")
-    p.add_argument("--k", type=int, default=None, help="override qrels k (default 4)")
+    p.add_argument("--tag", required=True, help="snapshot name")
+    p.add_argument("--k", type=int, default=None, help="override qrels k")
     p.add_argument("--compare", default=None, help="previous retrieval tag")
+    p.add_argument("--qrels", type=Path, default=None, help="金标路径")
+    p.add_argument(
+        "--level",
+        choices=["doc", "chunk"],
+        default=None,
+        help="doc=文件级（默认旧行为）；chunk=chunk id 级。可被 qrels.level 覆盖",
+    )
+    p.add_argument(
+        "--expand-neighbors",
+        type=int,
+        default=None,
+        help="邻块扩展半径；chunk 级默认 0，doc 级默认 1",
+    )
     p.add_argument(
         "--method",
-        default="本地 JSON 余弦检索（DashScope embed）P@k / R@k / Hit@k，不跑对话 LLM",
-        help="这次测的检索方法，写入 JSON",
+        default="本地 JSON 余弦检索 P@k / R@k / Hit@k，不跑对话 LLM",
+        help="这次测的检索方法",
     )
-    p.add_argument("--notes", default="", help="补充说明，可选")
+    p.add_argument("--notes", default="", help="补充说明")
     args = p.parse_args()
+
+    qrels = args.qrels
+    level = args.level
+    if qrels is not None:
+        qp = qrels if qrels.is_absolute() else (ROOT / qrels)
+        if qp.exists() and level is None:
+            spec = _load_yaml(qp)
+            level = str(spec.get("level") or "doc")
+    level = level or "doc"
+
     try:
         run_suite(
             tag=args.tag,
@@ -159,6 +287,9 @@ def main() -> None:
             compare_tag=args.compare,
             method=args.method,
             notes=args.notes,
+            qrels_path=args.qrels,
+            level=level,
+            expand_neighbors=args.expand_neighbors,
         )
     except FileNotFoundError as exc:
         print(f"Error: {exc}", file=sys.stderr)

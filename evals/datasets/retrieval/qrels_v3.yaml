@@ -1,0 +1,211 @@
+version: '3.0'
+level: chunk
+k: 8
+domain: 新能源汽车
+notes: chunk 级金标；按正文关键词+source 白名单标注，非检索回标。语料含多品牌 seed + diversify crawl。评测默认 expand_neighbors=0。
+queries:
+- id: C1
+  query: 比亚迪刀片电池的核心卖点是什么？
+  relevant_chunks:
+  - byd_blade_battery.md::1
+  - byd_blade_battery.md::2
+  - byd_blade_battery.md::3
+  tags:
+  - blade
+  - seed
+  note: content-match any=['刀片', '安全性', '空间利用率']; n=3/3
+- id: C2
+  query: 磷酸铁锂和三元锂在成本与能量密度上有什么区别？
+  relevant_chunks:
+  - battery_lfp_nmc.md::1
+  - battery_lfp_nmc.md::2
+  - battery_lfp_nmc.md::3
+  - byd_blade_battery.md::1
+  tags:
+  - chemistry
+  note: content-match any=['磷酸铁锂', '三元', 'LFP', 'NMC', '能量密度']; n=4/5
+- id: C3
+  query: 宁德时代全球动力电池装车份额大概多少？
+  relevant_chunks:
+  - catl_supply_chain.md::0
+  - catl_supply_chain.md::1
+  - catl_supply_chain.md::2
+  tags:
+  - catl
+  note: content-match any=['宁德', '装车', '份额', '市占']; n=3/3
+- id: C4
+  query: 欧盟对中国电动汽车加征关税如何影响出海？
+  relevant_chunks:
+  - byd_overseas_2024.md::1
+  - byd_overseas_2024.md::2
+  - byd_overseas_2024.md::3
+  - ev_trade_barriers.md::1
+  tags:
+  - trade
+  note: content-match any=['关税', '反补贴', '欧盟', '壁垒']; n=4/7
+- id: C5
+  query: 蔚来换电和 BaaS 是怎么运作的？
+  relevant_chunks:
+  - charging_and_swap.md::1
+  - charging_and_swap.md::3
+  - crawl/nio_swap_2026_1_www_nio_cn.md::0
+  - crawl/nio_swap_2026_1_www_nio_cn.md::1
+  tags:
+  - nio
+  - diversify
+  note: content-match any=['换电', 'BaaS', '蔚来']; n=4/16
+- id: C6
+  query: 小鹏智驾 XNGP 或端到端路线强调什么？
+  relevant_chunks:
+  - crawl/xpeng_ad_2026_1_www_xiaopeng_com.md::0
+  - crawl/xpeng_ad_2026_1_www_xiaopeng_com.md::1
+  - crawl/xpeng_ad_2026_1_www_xiaopeng_com.md::2
+  - crawl/xpeng_ad_2026_1_www_xiaopeng_com.md::3
+  tags:
+  - xpeng
+  - diversify
+  note: content-match any=['小鹏', '智驾', 'XNGP', '端到端']; n=4/17
+- id: C7
+  query: 理想汽车为什么坚持增程式？
+  relevant_chunks:
+  - china_new_forces.md::1
+  - china_new_forces.md::4
+  - china_new_forces.md::5
+  - crawl/li_auto_er_2026_1_www_chnfund_com.md::0
+  tags:
+  - li_auto
+  - diversify
+  note: content-match any=['理想', '增程', 'REEV']; n=4/25
+- id: C8
+  query: LG 新能源在动力电池供应里扮演什么角色？
+  relevant_chunks:
+  - crawl/lges_battery_2026_1_www_3c-ate_com.md::0
+  - crawl/lges_battery_2026_1_www_3c-ate_com.md::2
+  - crawl/lges_battery_2026_1_www_3c-ate_com.md::3
+  - crawl/lges_battery_2026_1_www_3c-ate_com.md::4
+  tags:
+  - lges
+  - diversify
+  note: content-match any=['LG', 'LGES', 'LG新能源', 'LG 新能源']; n=4/9
+- id: C9
+  query: 松下给特斯拉供哪些电芯规格？
+  relevant_chunks:
+  - crawl/panasonic_cell_2026_3_auto_news18a_com.md::0
+  - crawl/panasonic_cell_2026_3_auto_news18a_com.md::1
+  - crawl/panasonic_cell_2026_3_auto_news18a_com.md::2
+  - crawl/panasonic_cell_2026_3_auto_news18a_com.md::3
+  tags:
+  - panasonic
+  - diversify
+  note: content-match any=['松下', '2170', '4680', '特斯拉']; n=4/7
+- id: C10
+  query: 大众 MEB 平台和 ID 系列是什么关系？
+  relevant_chunks:
+  - crawl/vw_meb_2026_1_www_jiemian_com.md::0
+  - crawl/vw_meb_2026_1_www_jiemian_com.md::1
+  - crawl/vw_meb_2026_1_www_jiemian_com.md::2
+  - crawl/vw_meb_2026_1_www_jiemian_com.md::3
+  tags:
+  - vw
+  - diversify
+  note: content-match any=['MEB', '大众', 'ID.']; n=4/48
+- id: C11
+  query: 2024 年中国新能源乘用车渗透率大概多少？
+  relevant_chunks:
+  - iea_global_ev_2024_2025.md::3
+  - nev_penetration_2024.md::0
+  - nev_penetration_2024.md::1
+  - nev_penetration_2024.md::2
+  tags:
+  - penetration
+  note: content-match any=['渗透率', '乘联会', '新能源乘用车']; n=4/5
+- id: C12
+  query: 以旧换新买新能源车能拿多少补贴？
+  relevant_chunks:
+  - china_nev_policy_2024.md::0
+  - china_nev_policy_2024.md::1
+  - china_nev_policy_2024.md::2
+  - crawl/china_nev_policy_2026_1_chejiahao_autohome_com_cn.md::0
+  tags:
+  - policy
+  note: content-match any=['以旧换新', '补贴', '报废']; n=4/20
+- id: C13
+  query: 特斯拉和比亚迪在成本与电池技术路线上如何对比？
+  relevant_chunks:
+  - battery_lfp_nmc.md::0
+  - battery_lfp_nmc.md::1
+  - battery_lfp_nmc.md::2
+  - battery_lfp_nmc.md::3
+  - byd_blade_battery.md::1
+  tags:
+  - compete
+  note: content-match any=['特斯拉', '比亚迪', '成本', '4680', '刀片']; n=5/11
+- id: C14
+  query: 锂镍钴上游资源集中带来哪些供应链风险？
+  relevant_chunks:
+  - upstream_lithium_nickel_cobalt.md::1
+  - upstream_lithium_nickel_cobalt.md::2
+  - upstream_lithium_nickel_cobalt.md::3
+  tags:
+  - upstream
+  note: content-match any=['锂', '镍', '钴', '上游', '集中']; n=3/4
+- id: C15
+  query: 三星 SDI 圆柱电池和装车布局有何看点？
+  relevant_chunks:
+  - crawl/samsung_sdi_2026_2_www_leiphone_com.md::0
+  - crawl/samsung_sdi_2026_2_www_leiphone_com.md::2
+  - crawl/samsung_sdi_2026_2_www_leiphone_com.md::4
+  - crawl/samsung_sdi_2026_2_www_leiphone_com.md::5
+  tags:
+  - samsung
+  - diversify
+  note: content-match any=['三星', 'SDI', '圆柱']; n=4/11
+- id: C16
+  query: 极氪或吉利纯电品牌销量与出口情况如何？
+  relevant_chunks:
+  - crawl/geely_zeekr_2026_1_www_21jingji_com.md::0
+  - crawl/geely_zeekr_2026_1_www_21jingji_com.md::1
+  - crawl/geely_zeekr_2026_1_www_21jingji_com.md::2
+  - crawl/geely_zeekr_2026_1_www_21jingji_com.md::3
+  tags:
+  - zeekr
+  - diversify
+  note: content-match any=['极氪', '吉利']; n=4/16
+- id: H1
+  query: 只问刀片电池安全性，不要蔚来换电或小鹏智驾
+  relevant_chunks:
+  - byd_blade_battery.md::1
+  - byd_blade_battery.md::2
+  tags:
+  - hard
+  - blade
+  note: content-match any=['刀片', '安全']; n=2/3
+- id: H2
+  query: 宁德时代市占，不要和 LG、三星装车混为一谈
+  relevant_chunks:
+  - catl_supply_chain.md::0
+  - catl_supply_chain.md::1
+  tags:
+  - hard
+  - catl
+  note: content-match any=['宁德', '份额', '装车']; n=2/3
+- id: H3
+  query: 换电网络密度，不是增程也不是刀片电池
+  relevant_chunks:
+  - charging_and_swap.md::1
+  - charging_and_swap.md::3
+  - crawl/nio_swap_2026_1_www_nio_cn.md::0
+  tags:
+  - hard
+  - swap
+  note: content-match any=['换电']; n=3/8
+- id: H4
+  query: 大众 MEB 电动平台，不是中国新势力增程
+  relevant_chunks:
+  - crawl/vw_meb_2026_1_www_jiemian_com.md::0
+  - crawl/vw_meb_2026_1_www_jiemian_com.md::1
+  - crawl/vw_meb_2026_1_www_jiemian_com.md::2
+  tags:
+  - hard
+  - vw
+  note: content-match any=['MEB', '大众']; n=3/9

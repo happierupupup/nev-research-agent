@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -257,22 +258,80 @@ def _sum(vals: list[Any]) -> float | None:
 
 
 def precision_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
-    """retrieved: ranked ids (e.g. chunk sources); relevant: gold set."""
+    """retrieved: ranked ids（doc source 或 chunk id）; relevant: gold set.
+
+    去重后再算：邻块扩展会导致同一 id 重复占槽，虚高/虚低都不稳。
+    """
     if k <= 0:
         return 0.0
-    top = retrieved[:k]
+    top = _unique_preserve(retrieved)[:k]
+    if not top:
+        return 0.0
     hits = sum(1 for item in top if item in relevant)
-    return round(hits / k, 4)
+    return round(hits / len(top), 4)
 
 
 def recall_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
     if not relevant:
         return 0.0
-    top = set(retrieved[:k])
+    top = set(_unique_preserve(retrieved)[:k])
     return round(len(top & relevant) / len(relevant), 4)
 
 
 def hit_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
     if not relevant:
         return 0.0
-    return 1.0 if set(retrieved[:k]) & relevant else 0.0
+    return 1.0 if set(_unique_preserve(retrieved)[:k]) & relevant else 0.0
+
+
+def mrr(retrieved: list[str], relevant: set[str], k: int | None = None) -> float:
+    """Mean Reciprocal Rank：首个相关结果排名的倒数（1-indexed）；未命中为 0。
+
+    k 若给定，只看去重后的前 k 名。
+    """
+    if not relevant:
+        return 0.0
+    ranked = _unique_preserve(retrieved)
+    if k is not None:
+        if k <= 0:
+            return 0.0
+        ranked = ranked[:k]
+    for i, item in enumerate(ranked, start=1):
+        if item in relevant:
+            return round(1.0 / i, 4)
+    return 0.0
+
+
+def ndcg_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
+    """nDCG@k（二值相关）：DCG / IDCG，log2 折损。"""
+    if k <= 0 or not relevant:
+        return 0.0
+    ranked = _unique_preserve(retrieved)[:k]
+    if not ranked:
+        return 0.0
+
+    def _dcg(rels: list[int]) -> float:
+        s = 0.0
+        for i, r in enumerate(rels, start=1):
+            if r:
+                s += r / math.log2(i + 1)
+        return s
+
+    gains = [1 if x in relevant else 0 for x in ranked]
+    dcg = _dcg(gains)
+    ideal_hits = min(k, len(relevant))
+    idcg = _dcg([1] * ideal_hits)
+    if idcg <= 0:
+        return 0.0
+    return round(dcg / idcg, 4)
+
+
+def _unique_preserve(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in items:
+        if x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    return out

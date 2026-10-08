@@ -160,6 +160,8 @@ def test_compare_runs_lift():
 
 
 def test_retrieval_metrics():
+    from evals.metrics import mrr, ndcg_at_k
+
     retrieved = ["a.md", "b.md", "c.md", "d.md"]
     relevant = {"a.md", "x.md"}
     assert precision_at_k(retrieved, relevant, 4) == 0.25
@@ -167,3 +169,10 @@ def test_retrieval_metrics():
     assert hit_at_k(retrieved, relevant, 4) == 1.0
     assert hit_at_k(["z.md"], relevant, 4) == 0.0
     assert precision_at_k([], relevant, 4) == 0.0
+    # 首条即相关 → MRR=1；理想排序 nDCG=1
+    assert mrr(retrieved, relevant, 4) == 1.0
+    assert ndcg_at_k(["a.md", "x.md", "z.md"], {"a.md", "x.md"}, 3) == 1.0
+    # 第 2 位才中
+    assert mrr(["z.md", "a.md"], relevant, 4) == 0.5
+    assert mrr(["z.md", "y.md"], relevant, 4) == 0.0
+    assert ndcg_at_k(["z.md"], relevant, 4) == 0.0
