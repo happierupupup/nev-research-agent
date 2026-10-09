@@ -14,6 +14,57 @@ from agent.core.schemas import issues_to_prompt
 from evals.metrics import pad_inline_citations
 
 
+def _content_piece(chunk: Any) -> str:
+    c = getattr(chunk, "content", None)
+    if c is None:
+        return ""
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        bits: list[str] = []
+        for part in c:
+            if isinstance(part, str):
+                bits.append(part)
+            elif isinstance(part, dict):
+                bits.append(str(part.get("text") or ""))
+            else:
+                bits.append(str(getattr(part, "text", None) or ""))
+        return "".join(bits)
+    return str(c)
+
+
+def _stream_synthesize(
+    llm: Any,
+    messages: list[Any],
+    on_event: ProgressCallback | None,
+) -> tuple[str, Any]:
+    """
+    真流式生成：每块 content 发 kind=token；失败则回退 invoke。
+    返回 (全文, 用于 usage 统计的 message/chunk)。
+    """
+    emit(on_event, {"kind": "answer_start", "step": "analyst"})
+    try:
+        acc = None
+        parts: list[str] = []
+        for chunk in llm.stream(messages):
+            piece = _content_piece(chunk)
+            if piece:
+                parts.append(piece)
+                emit(on_event, {"kind": "token", "text": piece, "step": "analyst"})
+            acc = chunk if acc is None else acc + chunk
+        text = "".join(parts).strip()
+        if text:
+            return text, acc
+    except Exception:  # noqa: BLE001
+        pass
+    # stream 失败或空结果：整段 invoke，再当作单块 token 推一次（便于 SSE）
+    msg = llm.invoke(messages)
+    text = str(getattr(msg, "content", "") or "").strip()
+    if text:
+        emit(on_event, {"kind": "token", "text": text, "step": "analyst"})
+    return text, msg
+
+
 def run_node(state: dict[str, Any]) -> dict[str, Any]:
     on_event: ProgressCallback | None = state.get("_on_event")
     query = state["query"]
@@ -43,9 +94,10 @@ def run_node(state: dict[str, Any]) -> dict[str, Any]:
         f"{mem}{fix}\n\n请输出规定 Markdown。"
     )
     llm = get_llm(temperature=0)
-    msg = llm.invoke([SystemMessage(content=SYSTEM), HumanMessage(content=human)])
-    usage_msgs.append(msg)
-    text = str(getattr(msg, "content", "") or "").strip()
+    messages = [SystemMessage(content=SYSTEM), HumanMessage(content=human)]
+    text, msg = _stream_synthesize(llm, messages, on_event)
+    if msg is not None:
+        usage_msgs.append(msg)
     if bool(state.get("report_mode")):
         text = pad_inline_citations(text, state.get("sources") or [], min_n=3)
     emit(on_event, {"kind": "answer_ready"})

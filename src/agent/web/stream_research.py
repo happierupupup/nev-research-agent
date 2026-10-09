@@ -36,7 +36,8 @@ def iter_research_events(
     """
     Yield dict events:
       kind=status|thinking|delta|done|error
-    Persists context / tool events / task progress on the chat session.
+    Persists tool/progress events (not every token) + final message on the chat session.
+    Analyst 真流式：kind=token → 即时 SSE delta；无 token 时回退事后切片。
     """
     q = (query or "").strip()
     if not q:
@@ -55,6 +56,7 @@ def iter_research_events(
     event_q: queue.Queue[dict[str, Any] | None] = queue.Queue()
     result_box: dict[str, Any] = {}
     error_box: dict[str, BaseException] = {}
+    answer_streamed = False
 
     sess.status = "running"
     sess.error = ""
@@ -87,6 +89,32 @@ def iter_research_events(
         ev = event_q.get()
         if ev is None:
             break
+        kind = str(ev.get("kind") or "")
+
+        # 真流式正文：不落盘每个 token，只推 SSE
+        if kind == "answer_start":
+            answer_streamed = False
+            raw_events.append({"kind": "answer_start", "step": ev.get("step")})
+            sess.task_progress = "正在生成回答…"
+            STORE.save(sess)
+            yield {
+                "kind": "status",
+                "status": "running",
+                "progress": sess.task_progress,
+                "title": sess.title,
+            }
+            continue
+
+        if kind == "token":
+            text = str(ev.get("text") or "")
+            if not text:
+                continue
+            answer_streamed = True
+            sess.task_progress = "正在生成回答…"
+            yield {"kind": "delta", "text": text, "step": ev.get("step") or "analyst"}
+            continue
+
+        # 进度 / 工具事件：落盘（不含 token）
         raw_events.append(ev)
         sess.events.append({**ev, "ts": ev.get("ts")})
         line = format_event_line(ev, user=user, seen_labels=seen_labels)
@@ -162,10 +190,11 @@ def iter_research_events(
     except Exception:  # noqa: BLE001
         pass
 
-    # 仅流式输出正文（思考块由前端 / content 完整消息带折叠）
-    chunk_size = 48
-    for i in range(0, len(report), chunk_size):
-        yield {"kind": "delta", "text": report[i : i + chunk_size]}
+    # 无 Analyst token 时（如 S1）回退事后切片；已真流式则不再重复推 delta
+    if not answer_streamed and report:
+        chunk_size = 48
+        for i in range(0, len(report), chunk_size):
+            yield {"kind": "delta", "text": report[i : i + chunk_size]}
 
     yield {
         "kind": "done",

@@ -39,6 +39,9 @@ def _normalize_user_key(ev: dict[str, Any]) -> tuple[str, str | None]:
 
 def format_event_admin(ev: dict[str, Any]) -> str | None:
     kind = ev.get("kind")
+    # token / answer_start：正文流式，不进思考行
+    if kind in {"token", "answer_start"}:
+        return None
     if kind == "tool_call":
         return f"[{ev.get('step')}] {ev.get('tool')} ← {ev.get('query')}"
     if kind == "tool_result":
@@ -55,7 +58,7 @@ def format_event_admin(ev: dict[str, Any]) -> str | None:
 
 def format_event_user(ev: dict[str, Any], seen_labels: set[str]) -> str | None:
     kind = ev.get("kind")
-    if kind == "tool_result":
+    if kind in {"tool_result", "token", "answer_start"}:
         return None
     key = _normalize_user_key(ev)
     label = USER_THINKING.get(key) or USER_THINKING.get((str(kind), None))

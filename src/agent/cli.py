@@ -148,11 +148,24 @@ def _run_one(
     print(f"\n{DIVIDER}")
     print("思考 / 工具调用过程（管理员）" if admin else "思考过程")
     print(DIVIDER)
-    seen = {"n": 0}
+    seen = {"n": 0, "answer_streamed": False}
     user_labels: set[str] = set()
 
     def on_event(ev: dict) -> None:
         seen["n"] += 1
+        kind = ev.get("kind")
+        if kind == "answer_start":
+            if seen["answer_streamed"]:
+                print("\n", flush=True)
+            print(f"\n{DIVIDER}")
+            print("Agent（流式）:")
+            print(DIVIDER)
+            seen["answer_streamed"] = True
+            return
+        if kind == "token":
+            print(str(ev.get("text") or ""), end="", flush=True)
+            seen["answer_streamed"] = True
+            return
         if admin:
             _print_event_admin(ev)
         else:
@@ -161,6 +174,19 @@ def _run_one(
     out = run_research(query, on_event=on_event, session=session, user_memory=user_memory)
     if seen["n"] == 0:
         print("(未调用工具)" if admin else "· 正在生成回答…")
+    if seen["answer_streamed"]:
+        print(flush=True)
+        # 正文已流式打印；只补来源 / token 统计
+        _print_sources(out)
+        if admin:
+            trace = out.get("tool_trace") or {}
+            print(
+                f"\n[meta] mode={out.get('agent_mode')} "
+                f"kb={out.get('kb_calls')} web={out.get('web_calls')} "
+                f"tok={out.get('total_tokens')} llm={out.get('llm_calls')} "
+                f"calls={trace.get('tool_calls')}"
+            )
+        return
     _print_result(out, streamed=True, user=user)
 
 
