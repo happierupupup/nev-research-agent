@@ -17,6 +17,7 @@ from agent.auth import User, is_admin, resolve_user
 from agent.core.intro import INTRO, is_capability_query
 from agent.display import format_event_admin, format_event_user
 from agent.memory import SessionMemory, UserMemoryStore, user_id_from_env
+from agent.persist import RunRecorder
 
 DIVIDER = "─" * 56
 
@@ -139,8 +140,24 @@ def _run_one(
 
     from agent.runtime import run_research
 
+    agent_mode = (os.getenv("AGENT_MODE") or "s2").strip().lower() or "s2"
+    recorder = RunRecorder(user_id=user.id, query=query, agent_mode=agent_mode)
+
     if as_json:
-        out = run_research(query, session=session, user_memory=user_memory)
+        def on_event_json(ev: dict) -> None:
+            recorder.record(ev)
+
+        try:
+            out = run_research(
+                query,
+                on_event=on_event_json,
+                session=session,
+                user_memory=user_memory,
+            )
+        except Exception as exc:  # noqa: BLE001
+            recorder.fail(exc)
+            raise
+        recorder.finish(out)
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return
 
@@ -152,13 +169,19 @@ def _run_one(
     user_labels: set[str] = set()
 
     def on_event(ev: dict) -> None:
+        recorder.record(ev)
         seen["n"] += 1
         if admin:
             _print_event_admin(ev)
         else:
             _print_event_user(ev, user_labels)
 
-    out = run_research(query, on_event=on_event, session=session, user_memory=user_memory)
+    try:
+        out = run_research(query, on_event=on_event, session=session, user_memory=user_memory)
+    except Exception as exc:  # noqa: BLE001
+        recorder.fail(exc)
+        raise
+    recorder.finish(out)
     if seen["n"] == 0:
         print("(未调用工具)" if admin else "· 正在生成回答…")
     _print_result(out, streamed=True, user=user)
