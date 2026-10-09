@@ -1,59 +1,61 @@
 # NEV Research Agent
 
-新能源汽车行业研究助手：基于本地知识库（可选联网检索）回答问题，输出带引用的短答或分析。
+[English](README.md) | [中文](README.zh-CN.md)
 
-**范围：** 整车、电池、供应链、政策、竞品。非新能源相关问题会拒答。
+NEV (new-energy vehicle) research assistant: answers from a local knowledge base (optional web search) with cited short answers or analysis.
 
-**角色：**
+**Scope:** OEMs, batteries, supply chain, policy, competitors. Non-NEV questions are refused.
 
-| 用户 | 说明 |
-|------|------|
-| `dev` | 普通用户：简要思考过程，默认走知识库问答 |
-| `admin` | 管理员：完整思考与工具调用；可手动扩库爬取 |
+**Roles:**
 
-用户定义见 `config/users.yaml`。
+| User | Description |
+|------|-------------|
+| `dev` | End user: brief thinking trace; KB Q&A by default |
+| `admin` | Admin: full tool traces; can run crawl/expand |
+
+Users are defined in `config/users.yaml`.
 
 ---
 
-## 项目结构
+## Layout
 
 ```
 nev-research-agent/
-├── main.py                 # CLI 入口
-├── web_app.py              # Gradio + SSE Web 入口
-├── config/users.yaml       # 测试用户（admin / alice / dev）+ 密码
+├── main.py                 # CLI entry
+├── config/users.yaml       # Test users (admin / alice / dev) + passwords
 ├── requirements.txt
 ├── .env.example
 ├── src/
-│   ├── agent/              # 研究 Agent
-│   │   ├── cli.py          # 命令行交互
-│   │   ├── runtime.py      # 运行入口
-│   │   ├── display.py      # 角色分流展示
-│   │   ├── web/            # Gradio UI + FastAPI SSE
-│   │   ├── s1/             # 单 Agent（ReAct）
-│   │   ├── s2/             # 四节点：Supervisor / Research / Analyst / Verifier
+│   ├── agent/              # Research agent
+│   │   ├── cli.py          # Interactive CLI
+│   │   ├── runtime.py      # Runtime entry
+│   │   ├── display.py      # Role-based display
+│   │   ├── s1/             # Single ReAct agent
+│   │   ├── s2/             # Supervisor / Research / Analyst / Verifier
 │   │   ├── tools/          # kb_search / web_search
-│   │   └── memory/         # 会话与长期记忆
-│   └── kb/                 # 分块、入库、检索、爬取清洗
+│   │   └── memory/         # Session + long-term memory
+│   └── kb/                 # Chunking, ingest, retrieval, crawl/clean
 ├── scripts/
-│   ├── ingest_kb.py        # 语料 → 向量索引
-│   ├── ask_kb.py           # 仅知识库问答（不经多 Agent）
-│   ├── crawl_to_staging.py # 扩库爬取 → 待审
-│   ├── promote_staging.py  # 审核通过 → 正式语料
-│   └── clean_staging.py    # 清洗待审稿
-├── data/                   # 本机数据（gitignore）
-│   ├── kb/                 # 正式语料
-│   ├── kb_staging/         # 爬取待审
-│   ├── kb_index/           # JSON 向量索引
-│   ├── milvus/             # Milvus Lite（可选）
-│   └── crawl/search_queries.yaml  # 批量扩库搜索词
-├── evals/                  # 评测数据集与脚本
+│   ├── ingest_kb.py        # Corpus → vector index
+│   ├── ask_kb.py           # KB-only Q&A (no multi-agent)
+│   ├── crawl_to_staging.py # Crawl → staging
+│   ├── promote_staging.py  # Approve staging → corpus
+│   └── clean_staging.py    # Clean staging drafts
+├── data/                   # Local data (gitignored)
+│   ├── kb/                 # Production corpus
+│   ├── kb_staging/         # Crawl pending review
+│   ├── kb_index/           # JSON vector index
+│   ├── milvus/             # Milvus Lite (optional)
+│   └── crawl/search_queries.yaml  # Batch crawl queries
+├── evals/                  # Eval datasets + runners
 └── tests/
 ```
 
+The Gradio Web UI lives on branch `front` (`web_app.py`, `src/agent/web/`). This branch (`main`) is CLI-only.
+
 ---
 
-## 安装
+## Install
 
 ```bash
 cd nev-research-agent
@@ -61,102 +63,86 @@ python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 pip install -e .
-cp .env.example .env              # 填写 API Key 等
+cp .env.example .env              # fill in API keys, etc.
 ```
 
-`.env` 至少需要：
+Minimum `.env`:
 
-- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL`（兼容 DashScope 等）
-- `EMBEDDING_MODEL`（入库与检索用）
-- 可选：`TAVILY_API_KEY`、`KB_BACKEND=milvus`、`NEV_USER_ID`
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` (OpenAI-compatible, e.g. DashScope)
+- `EMBEDDING_MODEL` (ingest + retrieval)
+- Optional: `TAVILY_API_KEY`, `KB_BACKEND=milvus`, `NEV_USER_ID`
 
-未执行 `pip install -e .` 时，`main.py` 与 `scripts/` 会自动把 `src/` 加入路径。
+If you skip `pip install -e .`, `main.py` and `scripts/` add `src/` to `sys.path` automatically.
 
-### 知识库入库
+### Ingest the knowledge base
 
 ```bash
-# 默认：写入 data/kb_index/（本地 JSON 余弦）
+# Default: write data/kb_index/ (local JSON cosine)
 python scripts/ingest_kb.py
 
-# 可选：同时写入 Milvus Lite（无 Docker）
+# Optional: also write Milvus Lite (no Docker)
 pip install "grpcio==1.67.1" "setuptools>=69,<81" "pymilvus==2.5.14" "milvus-lite==2.4.12"
 python scripts/ingest_kb.py --also-milvus
-# .env 中设 KB_BACKEND=milvus
+# set KB_BACKEND=milvus in .env
 ```
 
 ---
 
-## 怎么用
+## Usage
 
-### Gradio Web（推荐）
+For a browser UI, switch to the `front` branch (`python web_app.py`).
 
-```bash
-pip install -r requirements.txt   # Gradio 3.x，兼容 Python 3.9
-python web_app.py
-# 浏览器打开 http://127.0.0.1:7860/ui/
-```
+### Tool-result cache (optional Redis)
 
-| 能力 | 说明 |
-|------|------|
-| 登录 | `config/users.yaml`；默认 `admin/admin`、`alice/alice` |
-| 会话 | 左侧列表，新建/切换/删除；状态落盘 `data/sessions/`（消息、工具事件、任务进展、STM） |
-| 对话 | 右侧输入输出；流式思考 + 回答（底层 SSE：`POST /api/sessions/{id}/stream`） |
-| 角色 | 管理员：完整工具调用；普通用户：仅简要思考阶段 |
-| 管理 | 管理员页：用户 CRUD、手动/批量爬虫、staging 审核 promote |
-
-环境变量：`NEV_WEB_HOST`（默认 `127.0.0.1`）、`NEV_WEB_PORT`（默认 `7860`）。
-
-### 工具结果缓存（可选 Redis）
-
-只缓存成功的 `kb_search` / `web_search` JSON；未配 `REDIS_URL` 或 Redis 宕机时失败旁路。同轮内相同工具调用按 `call_id` 去重。详见 [`docs/usage.md`](docs/usage.md)。
+Caches successful `kb_search` / `web_search` JSON only. Fail-open if `REDIS_URL` is unset or Redis is down. Same-turn duplicate tool calls are deduped by `call_id`. See [`docs/usage.md`](docs/usage.md).
 
 ```bash
 docker run -d --name nev-redis -p 6379:6379 redis:7-alpine
 # .env: REDIS_URL=redis://127.0.0.1:6379/0
 ```
 
-### 问答（CLI）
+### Q&A (CLI)
 
 ```bash
-# 普通用户（默认）
+# End user (default)
 python main.py --user alice
 python main.py --user alice "比亚迪刀片电池的核心卖点是什么？"
 
-# 管理员（可见工具调用细节）
+# Admin (full tool-call detail)
 python main.py --user admin "分析比亚迪海外扩张"
 
-# 开启长期记忆
+# Long-term memory
 python main.py --memory --user alice "它和宁德时代比呢？"
 
-# 仅知识库（不经多 Agent 编排）
-python scripts/ask_kb.py "比亚迪刀片电池的核心卖点是什么？"
+# KB only (no multi-agent orchestration)
+python scripts/ask_kb.py "What are the key selling points of BYD Blade Battery?"
 ```
 
-`AGENT_MODE=s1` 可切回单 Agent；默认 `s2`。
+Set `AGENT_MODE=s1` for the single agent; default is `s2`.
 
-### RAG 查询改写与混合检索
+### RAG: query rewrite & hybrid retrieval
 
-`kb_search` 入库检索前会改写查询（去口语/任务动词、补实体别名）。默认规则改写：
+`kb_search` rewrites the query before retrieval (strip chatty verbs, expand entity aliases). Default is rule-based:
 
 ```bash
 # .env
-KB_QUERY_REWRITE=rules   # 默认
-# KB_QUERY_REWRITE=llm   # 可选：LLM 改写，失败回退 rules
+KB_QUERY_REWRITE=rules   # default
+# KB_QUERY_REWRITE=llm   # optional LLM rewrite; falls back to rules
 # KB_QUERY_REWRITE=off
 
-# 检索评测对照
-python evals/run_retrieval.py --tag rewrite_off --rewrite off --method "无改写"
-python evals/run_retrieval.py --tag rewrite_rules --rewrite rules --method "规则改写" --compare rewrite_off
+# Retrieval eval A/B
+python evals/run_retrieval.py --tag rewrite_off --rewrite off --method "no rewrite"
+python evals/run_retrieval.py --tag rewrite_rules --rewrite rules --method "rule rewrite" --compare rewrite_off
 ```
 
-混合检索：向量 + 内存 BM25。默认仍为纯向量（qrels_v3 上等权 RRF 会降 P/R，见 eval-log R18）：
+Hybrid retrieval: dense + in-memory BM25. Default remains dense-only (equal-weight RRF hurt P/R on qrels_v3; see eval-log R18):
 
 ```bash
 # .env
-KB_RETRIEVAL_MODE=vector   # 默认；keyword | hybrid
-# KB_HYBRID_FUSION=rrf     # 或 convex
-# KB_HYBRID_WEIGHTS=3,1    # 向量:关键词（rrf）
-# KB_HYBRID_ALPHA=0.85     # 向量占比（convex）
+KB_RETRIEVAL_MODE=vector   # default; keyword | hybrid
+# KB_HYBRID_FUSION=rrf     # or convex
+# KB_HYBRID_WEIGHTS=3,1    # vector:keyword (rrf)
+# KB_HYBRID_ALPHA=0.85     # vector share (convex)
 # KB_HYBRID_CANDIDATES=24
 # KB_RRF_K=60
 
@@ -165,11 +151,11 @@ python evals/run_retrieval.py --tag hybrid_rrf_w31_v3 --rewrite off --retrieval 
   --compare rag_chunk_baseline_v3 --method "hybrid: weighted RRF 3:1"
 ```
 
-重排：向量初检 topN 后再截 k。默认 off：
+Rerank: retrieve top-N then cut to k. Default off:
 
 ```bash
 # .env
-KB_RERANK=off          # lexical | gte（DashScope gte-rerank-v2）
+KB_RERANK=off          # lexical | gte (DashScope gte-rerank-v2)
 # KB_RERANK_CANDIDATES=32
 # KB_RERANK_MODEL=gte-rerank-v2
 
@@ -178,25 +164,25 @@ python evals/run_retrieval.py --tag rerank_gte_v3 --rewrite off --retrieval vect
   --compare rag_chunk_baseline_v3 --method "rerank: gte-rerank-v2"
 ```
 
-### 管理员扩库
+### Admin corpus expand
 
-爬取结果进入 `data/kb_staging/`，需审核后再入库。
+Crawls land in `data/kb_staging/` and need review before ingest.
 
 ```bash
-# 手动：关键词 + 时间范围（需管理员）
+# Manual: keyword + date range (admin)
 python scripts/crawl_to_staging.py --admin --user admin
 python scripts/crawl_to_staging.py --user admin \
   --keyword "比亚迪 海外" --from 2026-01-01 --to 2026-06-30
 
-# 批量：按 data/crawl/search_queries.yaml
+# Batch: data/crawl/search_queries.yaml
 python scripts/crawl_to_staging.py --from-config
 
-# 审核通过 → data/kb/crawl/，再重建索引
+# Approve → data/kb/crawl/, then rebuild index
 python scripts/promote_staging.py --approve <doc_id>
 python scripts/ingest_kb.py --also-milvus
 ```
 
-### 评测与单测
+### Eval & tests
 
 ```bash
 pytest -q

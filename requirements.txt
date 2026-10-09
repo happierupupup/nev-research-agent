@@ -11,10 +11,7 @@ python-dotenv>=1.0.0
 pytest>=8.0.0
 redis>=5.0.0
 duckduckgo-search>=6.0.0
-# Web UI：Python 3.9 可用 Gradio 3.x（勿强依赖 Gradio 4/5）
-gradio>=3.50.0,<4
-fastapi>=0.100.0
-uvicorn[standard]>=0.22.0
+# Gradio / FastAPI Web UI 依赖在分支 front（勿在本分支安装）
 # optional: pip install tavily-python  when TAVILY_API_KEY is set
 # Milvus Lite（无 Docker；可选，KB_BACKEND=milvus 时需要）
 # 先装带 wheel 的 grpcio，避免 macOS 源码编译卡住；setuptools<81 保留 pkg_resources（milvus-lite 需要）
